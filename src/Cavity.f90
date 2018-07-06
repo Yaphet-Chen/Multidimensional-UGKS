@@ -122,13 +122,13 @@ module ControlParameters
     ! type(CellInterface)                                 :: vface(IXMIN-GHOST_NUM+1:IXMAX+GHOST_NUM),hface !Vertical and horizontal interfaces
 
     !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
-    real(KREAL), parameter                              :: INIT_GAS = [1.0, 0.0, 0.0, 1.0]
+    real(KREAL), parameter, dimension(4)                :: INIT_GAS = [1.0, 0.0, 0.0, 1.0]
 
     !Boundary condition (density, u-velocity, v-velocity, lambda=1/temperature)
-    real(KREAL), parameter                              :: BC_W = [1.0, 0.0, 0.0, 1.0] !West boundary
-    real(KREAL), parameter                              :: BC_E = [1.0, 0.0, 0.0, 1.0] !East boundary
-    real(KREAL), parameter                              :: BC_S = [1.0, 0.0, 0.0, 1.0] !South boundary
-    real(KREAL), parameter                              :: BC_N = [1.0, 0.15, 0.0, 1.0] !North boundary
+    real(KREAL), parameter, dimension(4)                :: BC_W = [1.0, 0.0, 0.0, 1.0] !West boundary
+    real(KREAL), parameter, dimension(4)                :: BC_E = [1.0, 0.0, 0.0, 1.0] !East boundary
+    real(KREAL), parameter, dimension(4)                :: BC_S = [1.0, 0.0, 0.0, 1.0] !South boundary
+    real(KREAL), parameter, dimension(4)                :: BC_N = [1.0, 0.15, 0.0, 1.0] !North boundary
 
     !--------------------------------------------------
     !Discrete velocity space
@@ -235,7 +235,7 @@ contains
         real(KREAL), dimension(:,:), intent(in)         :: vn,vt !Normal and tangential velocity
         real(KREAL), intent(in)                         :: prim(4)
 
-        h = prim(1)*(prim(4)/PI)*exp(-prim(4)*((vn-prim(2))**2+(vt-prim(3))**2)
+        h = prim(1)*(prim(4)/PI)*exp(-prim(4)*((vn-prim(2))**2+(vt-prim(3))**2))
         b = h*CK/(2.0*prim(4))
     end subroutine DiscreteMaxwell
 
@@ -252,7 +252,7 @@ contains
         real(KREAL), dimension(:,:), intent(in)         :: vn,vt
         real(KREAL), intent(in)                         :: qf(2)
         real(KREAL), intent(in)                         :: prim(4)
-        real(KREAL), dimension(:), intent(out)          :: H_plus,B_plus
+        real(KREAL), dimension(:,:), intent(out)        :: H_plus,B_plus
 
         H_plus = 0.8*(1-PR)*prim(4)**2/prim(1)*&
                     ((vn-prim(2))*qf(1)+(vt-prim(3))*qf(2))*(2*prim(4)*((vn-prim(2))**2+(vt-prim(3))**2)+CK-5)*H

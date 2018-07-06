@@ -11,7 +11,6 @@ FCFLAGS = -module $(BIN) -O3
 OMPFLAG = -openmp -parallel -fpp
 
 ifeq ($(FC),gfortran)
-    # FCFLAGS = -J$(BIN) -O3 -ffree-line-length-none
 	FCFLAGS = -J$(BIN) -O3 -ffree-line-length-none -march=native
     OMPFLAG = -fopenmp
 	# gfortran -ffree-line-length-none -march=native -funroll-loops -flto -pipe -O3
@@ -27,7 +26,7 @@ BIN = bin
 #--------------------------------------------------
 #compiling
 #--------------------------------------------------
-all: checkdir StationaryShockStructure
+all: checkdir StationaryShockStructure Cavity
 
 #mkdir
 checkdir:
@@ -36,6 +35,9 @@ checkdir:
 #build executables
 StationaryShockStructure: checkdir
 	$(FC) $(FCFLAGS) -o $(BIN)/StationaryShockStructure src/StationaryShockStructure.f90
+
+Cavity: checkdir
+	$(FC) $(FCFLAGS) -o $(BIN)/Cavity src/Cavity.f90
 
 #clean
 clean:
