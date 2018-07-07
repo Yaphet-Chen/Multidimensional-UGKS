@@ -22,6 +22,10 @@ module ConstantVariables
     !Direction
     integer(KINT), parameter                            :: IDIRC = 1 !I direction
     integer(KINT), parameter                            :: JDIRC = 2 !J direction
+    
+    !Rotation
+    integer,parameter :: RN = 1 !no frame rotation
+    integer,parameter :: RY = -1 !with frame rotation
 end module ConstantVariables
 
 !--------------------------------------------------
@@ -57,17 +61,19 @@ module Mesh
     end type CellInterface
 
     !index method
-    !          (i,j+1)
-    !     ----------------
-    !     |              |
-    !     |              |
-    !     |              |
-    !(i,j)|     (i,j)    |(i+1,j)
-    !     |      Cell    |
-    !     |              |
-    !     |              |
-    !     ----------------
-    !           (i,j)
+    !---------------------------------
+    !           (i,j+1)              |
+    !      ----------------          |
+    !      |              |          |
+    !      |              |          |
+    !      |              |          |
+    ! (i,j)|     (i,j)    |(i+1,j)   |
+    !      |      Cell    |          |
+    !      |              |          |
+    !      |              |          |
+    !      ----------------          |
+    !            (i,j)               |
+    !---------------------------------
 end module Mesh
 
 module ControlParameters
@@ -113,13 +119,22 @@ module ControlParameters
     !--------------------------------------------------
     !Initial flow field
     !--------------------------------------------------
-    !Index method
-    !-------------------------------
-    !| (i-1) |  (i) |  (i) | (i+1) |
-    !| cell  | face | cell | face  |
-    !-------------------------------
-    ! type(CellCenter)                                    :: ctr(IXMIN-GHOST_NUM:IXMAX+GHOST_NUM) !Cell center (with ghost cell)
-    ! type(CellInterface)                                 :: vface(IXMIN-GHOST_NUM+1:IXMAX+GHOST_NUM),hface !Vertical and horizontal interfaces
+    !>Index method
+    !---------------------------------
+    !           (i,j+1)              |
+    !      ----------------          |
+    !      |              |          |
+    !      |              |          |
+    !      |              |          |
+    ! (i,j)|     (i,j)    |(i+1,j)   |
+    !      |      Cell    |          |
+    !      |              |          |
+    !      |              |          |
+    !      ----------------          |
+    !            (i,j)               |
+    !---------------------------------
+    type(CellCenter)                                    :: ctr(IXMIN:IXMAX,IYMIN:IYMAX) !Cell center (with ghost cell)
+    type(CellInterface)                                 :: vface(IXMIN:IXMAX+1,IYMIN:IYMAX),hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Vertical and horizontal interfaces
 
     !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
     real(KREAL), parameter, dimension(4)                :: INIT_GAS = [1.0, 0.0, 0.0, 1.0]
@@ -554,7 +569,7 @@ contains
         !--------------------------------------------------
         !Convert to global frame
         face%flux = GlobalFrame(face%flux,face%cosx,face%cosy)
-        
+
         !Total flux
         face%flux = dt*face%length*face%flux
         face%flux_h = dt*face%length*face%flux_h
@@ -700,3 +715,284 @@ contains
         Moment_uvxi(4) = 0.5*(Mu(alpha+2)*Mv(beta)*Mxi(delta/2)+Mu(alpha)*Mv(beta+2)*Mxi(delta/2)+Mu(alpha)*Mv(beta)*Mxi((delta+2)/2))
     end function Moment_uvxi
 end module Flux
+
+!--------------------------------------------------
+!>UGKS solver
+!--------------------------------------------------
+module Solver
+    use Flux
+    implicit none
+
+contains
+    !--------------------------------------------------
+    !>Calculate time step
+    !--------------------------------------------------
+    subroutine TimeStep()
+        real(KREAL)                                     :: prim(4) !primary variables
+        real(KREAL)                                     :: sos !speed of sound
+        real(KREAL)                                     :: tMax !max 1/dt allowed
+        integer(KINT)                                   :: i,j
+        
+        !Set initial value
+        tMax = 0.0
+
+        !$omp parallel 
+        !$omp do private(i,j,sos,prim) reduction(max:tmax)
+        do j=IYMIN,IYMAX
+            do i=IXMIN,IXMAX
+                !Convert conservative variables to primary variables
+                prim = GetPrimary(ctr(i,j)%conVars)
+
+                !Get sound speed
+                sos = GetSoundSpeed(prim)
+
+                !Maximum velocity
+                prim(2) = max(U_MAX,abs(prim(2)))+sos
+                prim(3) = max(V_MAX,abs(prim(3)))+sos
+
+                !Maximum 1/dt allowed
+                tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
+            end do
+        end do
+        !$omp end do
+        !$omp end parallel
+        
+        !Time step
+        dt = CFL/tMax
+    end subroutine TimeStep
+
+    !--------------------------------------------------
+    !>Interpolation of the boundary cell
+    !>@param[inout] targetCell    :the target boundary cell
+    !>@param[inout] leftCell      :the left cell
+    !>@param[inout] rightCell     :the right cell
+    !>@param[in]    idx           :the index indicating i or j direction
+    !--------------------------------------------------
+    subroutine InterpBoundary(leftCell,targetCell,rightCell,idx)
+        type(CellCenter), intent(inout)                 :: targetCell
+        type(CellCenter), intent(inout)                 :: leftCell,rightCell
+        integer(KINT), intent(in)                       :: idx
+
+        call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
+    end subroutine InterpBoundary
+
+    !--------------------------------------------------
+    !>Interpolation of the inner cells
+    !>@param[in]    leftCell      :the left cell
+    !>@param[inout] targetCell    :the target cell
+    !>@param[in]    rightCell     :the right cell
+    !>@param[in]    idx           :the index indicating i or j direction
+    !--------------------------------------------------
+    subroutine InterpInner(leftCell,targetCell,rightCell,idx)
+        type(CellCenter), intent(in)                    :: leftCell,rightCell
+        type(CellCenter), intent(inout)                 :: targetCell
+        integer(KINT), intent(in)                       :: idx
+
+        call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
+    end subroutine InterpInner
+
+    !--------------------------------------------------
+    !>Reconstruct the slope of initial distribution function
+    !>Index method
+    !---------------------------------
+    !           (i,j+1)              |
+    !      ----------------          |
+    !      |              |          |
+    !      |              |          |
+    !      |              |          |
+    ! (i,j)|     (i,j)    |(i+1,j)   |
+    !      |      Cell    |          |
+    !      |              |          |
+    !      |              |          |
+    !      ----------------          |
+    !            (i,j)               |
+    !---------------------------------
+    !--------------------------------------------------
+    subroutine Reconstruction()
+        integer(KINT)                                   :: i,j
+
+        !$omp parallel
+        !--------------------------------------------------
+        !i direction
+        !--------------------------------------------------
+        
+        !Boundary part
+        !$omp do
+        do j=IYMIN,IYMAX
+            call InterpBoundary(ctr(IXMIN,j),ctr(IXMIN,j),ctr(IXMIN+1,j),IDIRC) !the last argument indicating i direction
+            call InterpBoundary(ctr(IXMAX-1,j),ctr(IXMAX,j),ctr(IXMAX,j),IDIRC)
+        end do
+        !$omp end do nowait
+
+        !Inner part
+        !$omp do
+        do j=IYMIN,IYMAX
+            do i=IXMIN+1,IXMAX-1
+                call InterpInner(ctr(i-1,j),ctr(i,j),ctr(i+1,j),IDIRC)
+            end do
+        end do
+        !$omp end do nowait
+
+        !--------------------------------------------------
+        !j direction
+        !--------------------------------------------------
+
+        !Boundary part
+        !$omp do
+        do i=IXMIN,IXMAX
+            call InterpBoundary(ctr(i,IYMIN),ctr(i,IYMIN),ctr(i,IYMIN+1),JDIRC)
+            call InterpBoundary(ctr(i,IYMAX-1),ctr(i,IYMAX),ctr(i,IYMAX),JDIRC)
+        end do
+        !$omp end do nowait
+
+        !$omp do
+        do j=IYMIN+1,IYMAX-1
+            do i=IXMIN,IXMAX
+                call InterpInner(ctr(i,j-1),ctr(i,j),ctr(i,j+1),JDIRC)
+            end do
+        end do
+        !$omp end do nowait
+        !$omp end parallel
+    end subroutine Reconstruction
+
+    !--------------------------------------------------
+    !>Calculate the flux across the interfaces
+    !--------------------------------------------------
+    subroutine Evolution()
+        integer(KINT)                                   :: i,j
+        
+        !$omp parallel
+        !--------------------------------------------------
+        !i direction
+        !--------------------------------------------------
+        
+        !Boundary part
+        !$omp do
+        do j=IYMIN,IYMAX
+            call CalcFluxBoundary(BC_W,vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN) !RN means no frame rotation
+            call CalcFluxBoundary(BC_E,vface(IXMAX+1,j),ctr(IXMAX,j),IDIRC,RY) !RY means with frame rotation
+        end do
+        !$omp end do nowait
+
+        !Inner part
+        !$omp do
+        do j=IYMIN,IYMAX
+            do i=IXMIN+1,IXMAX
+                call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
+            end do
+        end do
+        !$omp end do nowait
+
+        !--------------------------------------------------
+        !j direction
+        !--------------------------------------------------
+
+        !Boundary part
+        !$omp do
+        do i=IXMIN,IXMAX
+            call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN)
+            call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY)
+        end do
+        !$omp end do nowait
+
+        !Inner part
+        !$omp do
+        do j=IYMIN+1,IYMAX
+            do i=IXMIN,IXMAX
+                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
+            end do
+        end do
+        !$omp end do nowait
+        !$omp end parallel
+    end subroutine Evolution
+
+    !--------------------------------------------------
+    !>Update cell averaged values
+    !--------------------------------------------------
+    subroutine Update()
+        real(KREAL), allocatable, dimension(:,:)        :: H_old,B_old !Equilibrium distribution at t=t^n
+        real(KREAL), allocatable, dimension(:,:)        :: H,B !Equilibrium distribution at t=t^{n+1}
+        real(KREAL), allocatable, dimension(:,:)        :: H_plus,B_plus !Shakhov part
+        real(KREAL)                                     :: conVars_old(4),prim_old(4),prim(4) !Conversative and primary variables at t^n and t^{n+1}
+        real(KREAL)                                     :: tau_old,tau !Collision time at t^n and t^{n+1}
+        real(KREAL)                                     :: qf(2)
+        real(KREAL)                                     :: sumRes(4),sumAvg(4)
+        integer(KINT)                                   :: i,j
+
+        !Allocate arrays
+        allocate(H_old(uNum,vNum))
+        allocate(B_old(uNum,vNum))
+        allocate(H(uNum,vNum))
+        allocate(B(uNum,vNum))
+        allocate(H_plus(uNum,vNum))
+        allocate(B_plus(uNum,vNum))
+
+        !set initial value
+        res = 0.0
+        sumRes = 0.0
+        sumAvg = 0.0
+
+        !$omp parallel
+        !$omp do
+        do j=IYMIN,IYMAX
+            do i=IXMIN,IXMAX
+                !--------------------------------------------------
+                !Store conVars^n and calculate H^n,B^n,\tau^n
+                !--------------------------------------------------
+                conVars_old = ctr(i,j)%conVars !Store conVars^n
+                prim_old = GetPrimary(conVars_old) !Convert to primary variables
+                call DiscreteMaxwell(H_old,B_old,uSpace,vSpace,prim_old) !Calculate Maxwellian
+                tau_old = GetTau(prim_old) !Calculate collision time \tau^n
+
+                !--------------------------------------------------
+                !Update conVars^{n+1} and Calculate H^{n+1},B^{n+1},\tau^{n+1}
+                !--------------------------------------------------
+                ctr(i,j)%conVars = ctr(i,j)%conVars+(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1}
+
+                prim = GetPrimary(ctr(i,j)%conVars)
+                call DiscreteMaxwell(H,B,uSpace,vSpace,prim)
+                tau = GetTau(prim)
+
+                !--------------------------------------------------
+                !Record residual
+                !--------------------------------------------------
+                sumRes = sumRes+(conVars_old-ctr(i,j)%conVars)**2
+                sumAvg = sumAvg+abs(ctr(i,j)%conVars)
+            
+                !--------------------------------------------------
+                !Shakhov part
+                !--------------------------------------------------
+                !Calculate heat flux at t=t^n
+                qf = GetHeatFlux(ctr(i,j)%h,ctr(i,j)%b,uSpace,vSpace,prim_old) 
+
+                !h^+ = H+H^+ at t=t^n
+                call ShakhovPart(H_old,B_old,uSpace,vSpace,qf,prim_old,H_plus,B_plus) !H^+ and B^+
+                H_old = H_old+H_plus !h^+
+                B_old = B_old+B_plus !b^+
+
+                !h^+ = H+H^+ at t=t^{n+1}
+                call ShakhovPart(H,B,uSpace,vSpace,qf,prim,H_plus,B_plus)
+                H = H+H_plus
+                B = B+B_plus
+
+                !--------------------------------------------------
+                !Update distribution function
+                !--------------------------------------------------
+                ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
+                                    0.5*dt*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt/tau)
+                ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
+                                    0.5*dt*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt/tau)
+            end do
+        end do
+        !$omp end do
+        !$omp end parallel
+        
+        !Deallocate arrays
+        deallocate(H_old)
+        deallocate(B_old)
+        deallocate(H)
+        deallocate(B)
+        deallocate(H_plus)
+        deallocate(B_plus)
+    end subroutine Update
+end module Solver
