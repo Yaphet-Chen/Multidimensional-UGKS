@@ -14,6 +14,7 @@ ifeq ($(FC),gfortran)
 	FCFLAGS = -J$(BIN) -O3 -ffree-line-length-none -march=native
     OMPFLAG = -fopenmp
 	# gfortran -ffree-line-length-none -march=native -funroll-loops -flto -pipe -O3
+	# -Wall -Wextra -fcheck=all -fbacktrace
 endif
 
 ifeq ($(OMP),yes)

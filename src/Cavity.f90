@@ -157,7 +157,7 @@ module ControlParameters
     !Discrete velocity space
     !--------------------------------------------------
     integer(KINT)                                       :: uNum = 45, vNum = 45 !Number of points in velocity space for u and v
-    real(KREAL), parameter                              :: U_MIN = -6.0, U_MAX = +6.0, V_MIN = -6.0, V_MAX = +6.0 !Minimum and maximum micro velocity
+    real(KREAL)                                         :: U_MIN = -6.0, U_MAX = +6.0, V_MIN = -6.0, V_MAX = +6.0 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
     real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
 end module ControlParameters
@@ -312,7 +312,7 @@ contains
         integer(KINT), intent(in)                       :: idx
         real(KREAL), allocatable, dimension(:,:)        :: sL,sR
 
-        !allocate array
+        !Allocate array
         allocate(sL(uNum,vNum))
         allocate(sR(uNum,vNum))
 
@@ -323,6 +323,10 @@ contains
         sL = (midCell%b-leftCell%b)/(0.5*(midCell%length(idx)+leftCell%length(idx)))
         sR = (rightCell%b-midCell%b)/(0.5*(rightCell%length(idx)+midCell%length(idx)))
         midCell%sb(:,:,idx) = (sign(UP,sR)+sign(UP,sL))*abs(sR)*abs(sL)/(abs(sR)+abs(sL)+SMV)
+
+        !Deallocate array
+        deallocate(sL)
+        deallocate(sR)
     end subroutine VanLeerLimiter
 end module Tools
 
@@ -399,7 +403,7 @@ contains
         !--------------------------------------------------
         !Obtain macroscopic variables
         !--------------------------------------------------
-        !Conservative variables w_0 at interface
+        !Conservative variables conVars at interface
         conVars(1) = sum(weight*h)
         conVars(2) = sum(weight*vn*h)
         conVars(3) = sum(weight*vt*h)
@@ -464,7 +468,7 @@ contains
 
         !Conservative flux related to g+ and f0
         face%flux(1) = face%flux(1)+Mt(1)*sum(weight*vn*H_plus)+Mt(4)*sum(weight*vn*h)-Mt(5)*sum(weight*vn**2*sh)
-        face%flux(2) = face%flux(2)+Mt(1)*sum(weight*vn**2*H_plus)+Mt(4)*sum(weight*vn**2*h)-Mt(5)*sum(weight*vn**3*sh)
+        face%flux(2) = face%flux(2)+Mt(1)*sum(weight*vn*vn*H_plus)+Mt(4)*sum(weight*vn*vn*h)-Mt(5)*sum(weight*vn*vn**2*sh)
         face%flux(3) = face%flux(3)+Mt(1)*sum(weight*vt*vn*H_plus)+Mt(4)*sum(weight*vt*vn*h)-Mt(5)*sum(weight*vt*vn**2*sh)
         face%flux(4) = face%flux(4)+&
                         Mt(1)*0.5*(sum(weight*vn*(vn**2+vt**2)*H_plus)+sum(weight*vn*B_plus))+&
@@ -489,7 +493,7 @@ contains
         !--------------------------------------------------
         !Final flux
         !--------------------------------------------------
-        !convert to global frame
+        !Convert to global frame
         face%flux = GlobalFrame(face%flux,face%cosx,face%cosy) 
         !Total flux
         face%flux = face%length*face%flux
@@ -642,7 +646,7 @@ contains
     
     !--------------------------------------------------
     !>calculate moments of velocity and \xi
-    !>@param[in] prim :primary variables
+    !>@param[in] prim       :primary variables
     !>@param[out] Mu,Mv     :<u^n>,<v^m>
     !>@param[out] Mxi       :<\xi^2n>
     !>@param[out] MuL,MuR   :<u^n>_{>0},<u^n>_{<0}
@@ -682,6 +686,25 @@ contains
     end subroutine CalcMoment
 
     !--------------------------------------------------
+    !>Calculate <u^\alpha*v^\beta*\xi^\delta*\psi>
+    !>@param[in] Mu,Mv      :<u^\alpha>,<v^\beta>
+    !>@param[in] Mxi        :<\xi^delta>
+    !>@param[in] alpha,beta :exponential index of u and v
+    !>@param[in] delta      :exponential index of \xi
+    !>@return    Moment_uvxi :moment of <u^\alpha*v^\beta*\xi^\delta*\psi>
+    !--------------------------------------------------
+    function Moment_uvxi(Mu,Mv,Mxi,alpha,beta,delta)
+        real(KREAL), intent(in)                         :: Mu(0:MNUM),Mv(0:MTUM),Mxi(0:2)
+        integer(KINT), intent(in)                       :: alpha,beta,delta
+        real(KREAL)                                     :: Moment_uvxi(4)
+
+        Moment_uvxi(1) = Mu(alpha)*Mv(beta)*Mxi(delta/2)
+        Moment_uvxi(2) = Mu(alpha+1)*Mv(beta)*Mxi(delta/2)
+        Moment_uvxi(3) = Mu(alpha)*Mv(beta+1)*Mxi(delta/2)
+        Moment_uvxi(4) = 0.5*(Mu(alpha+2)*Mv(beta)*Mxi(delta/2)+Mu(alpha)*Mv(beta+2)*Mxi(delta/2)+Mu(alpha)*Mv(beta)*Mxi((delta+2)/2))
+    end function Moment_uvxi
+
+    !--------------------------------------------------
     !>Calculate <a*u^\alpha*v^\beta*\psi>
     !>@param[in] a          :micro slope of Maxwellian
     !>@param[in] Mu,Mv      :<u^\alpha>,<v^\beta>
@@ -702,25 +725,6 @@ contains
                     0.5*a(4)*Moment_uvxi(Mu,Mv,Mxi,alpha+0,beta+2,0)+&
                     0.5*a(4)*Moment_uvxi(Mu,Mv,Mxi,alpha+0,beta+0,2)
     end function Moment_auvxi
-
-    !--------------------------------------------------
-    !>Calculate <u^\alpha*v^\beta*\xi^\delta*\psi>
-    !>@param[in] Mu,Mv      :<u^\alpha>,<v^\beta>
-    !>@param[in] Mxi        :<\xi^delta>
-    !>@param[in] alpha,beta :exponential index of u and v
-    !>@param[in] delta      :exponential index of \xi
-    !>@return    Moment_uvxi :moment of <u^\alpha*v^\beta*\xi^\delta*\psi>
-    !--------------------------------------------------
-    function Moment_uvxi(Mu,Mv,Mxi,alpha,beta,delta)
-        real(KREAL), intent(in)                         :: Mu(0:MNUM),Mv(0:MTUM),Mxi(0:2)
-        integer(KINT), intent(in)                       :: alpha,beta,delta
-        real(KREAL)                                     :: Moment_uvxi(4)
-
-        Moment_uvxi(1) = Mu(alpha)*Mv(beta)*Mxi(delta/2)
-        Moment_uvxi(2) = Mu(alpha+1)*Mv(beta)*Mxi(delta/2)
-        Moment_uvxi(3) = Mu(alpha)*Mv(beta+1)*Mxi(delta/2)
-        Moment_uvxi(4) = 0.5*(Mu(alpha+2)*Mv(beta)*Mxi(delta/2)+Mu(alpha)*Mv(beta+2)*Mxi(delta/2)+Mu(alpha)*Mv(beta)*Mxi((delta+2)/2))
-    end function Moment_uvxi
 end module Flux
 
 !--------------------------------------------------
@@ -735,9 +739,9 @@ contains
     !>Calculate time step
     !--------------------------------------------------
     subroutine TimeStep()
-        real(KREAL)                                     :: prim(4) !primary variables
-        real(KREAL)                                     :: sos !speed of sound
-        real(KREAL)                                     :: tMax !max 1/dt allowed
+        real(KREAL)                                     :: prim(4) !Primary variables
+        real(KREAL)                                     :: sos !Speed of sound
+        real(KREAL)                                     :: tMax !Max 1/dt allowed
         integer(KINT)                                   :: i,j
         
         !Set initial value
@@ -897,8 +901,8 @@ contains
         !Boundary part
         !$omp do
         do i=IXMIN,IXMAX
-            call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN)
-            call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY)
+            call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN) !RN means no frame rotation
+            call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY) !RY means with frame rotation 
         end do
         !$omp end do nowait
 
@@ -939,8 +943,6 @@ contains
         sumRes = 0.0
         sumAvg = 0.0
 
-        !$omp parallel
-        !$omp do
         do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX
                 !--------------------------------------------------
@@ -991,8 +993,6 @@ contains
                                     0.5*dt*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt/tau)
             end do
         end do
-        !$omp end do
-        !$omp end parallel
 
         !Calculate final residual
         res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)
@@ -1022,7 +1022,8 @@ contains
     subroutine Init()  
         call InitUniformMesh() !Initialize Uniform mesh
         ! call InitRandomMesh()
-        call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
+        ! call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
+        call InitVelocityGauss() !Initialize uSpace, vSpace and weights
         call InitAllocation(uNum,vNum) !Allocate discrete velocity space
         call InitFlowField() !Set the initial value
     end subroutine Init
@@ -1157,6 +1158,55 @@ contains
                 end if
             end function newtonCoeff
     end subroutine InitVelocityNewton
+
+    !--------------------------------------------------
+    !>Set discrete velocity space using Gaussian-Hermite type quadrature
+    !>@param[in] umid,vmid :middle value of the velocity space, zero or macroscopic velocity
+    !--------------------------------------------------
+    subroutine InitVelocityGauss()
+        real(KREAL)                                     :: umid,vmid
+        real(KREAL)                                     :: vcoords(28), weights(28) !Velocity points and weight for 28 points (symmetry)
+        integer(KINT)                                   :: i,j
+
+        !set velocity points and weight
+        vcoords = [ -0.5392407922630E+01, -0.4628038787602E+01, -0.3997895360339E+01, -0.3438309154336E+01,&
+                    -0.2926155234545E+01, -0.2450765117455E+01, -0.2007226518418E+01, -0.1594180474269E+01,&
+                    -0.1213086106429E+01, -0.8681075880846E+00, -0.5662379126244E+00, -0.3172834649517E+00,&
+                    -0.1331473976273E+00, -0.2574593750171E-01, +0.2574593750171E-01, +0.1331473976273E+00,&
+                    +0.3172834649517E+00, +0.5662379126244E+00, +0.8681075880846E+00, +0.1213086106429E+01,&
+                    +0.1594180474269E+01, +0.2007226518418E+01, +0.2450765117455E+01, +0.2926155234545E+01,&
+                    +0.3438309154336E+01, +0.3997895360339E+01, +0.4628038787602E+01, +0.5392407922630E+01 ]
+
+        weights = [ +0.2070921821819E-12, +0.3391774320172E-09, +0.6744233894962E-07, +0.3916031412192E-05,&
+                    +0.9416408715712E-04, +0.1130613659204E-02, +0.7620883072174E-02, +0.3130804321888E-01,&
+                    +0.8355201801999E-01, +0.1528864568113E+00, +0.2012086859914E+00, +0.1976903952423E+00,&
+                    +0.1450007948865E+00, +0.6573088665062E-01, +0.6573088665062E-01, +0.1450007948865E+00,&
+                    +0.1976903952423E+00, +0.2012086859914E+00, +0.1528864568113E+00, +0.8355201801999E-01,&
+                    +0.3130804321888E-01, +0.7620883072174E-02, +0.1130613659204E-02, +0.9416408715712E-04,&
+                    +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
+
+        !set grid number for u-velocity and v-velocity
+        uNum = 28
+        vNum = 28
+
+        !allocate discrete velocity space
+        allocate(uSpace(uNum,vNum)) !x direction
+        allocate(vSpace(uNum,vNum)) !y direction
+        allocate(weight(uNum,vNum)) !weight at u_k and v_l
+
+        umid = 0.0
+        vmid = 0.0
+        !set velocity space and weight
+        forall(i=1:uNum,j=1:vNum)
+            uSpace(i,j) = umid+vcoords(i)
+            vSpace(i,j) = vmid+vcoords(j)
+            weight(i,j) = (weights(i)*exp(vcoords(i)**2))*(weights(j)*exp(vcoords(j)**2))
+        end forall
+
+        !store the maximum micro velocity
+        U_MAX = maxval(abs(uSpace(:,1)))
+        V_MAX = maxval(abs(vSpace(1,:)))
+    end subroutine InitVelocityGauss
 
     !--------------------------------------------------
     !>Allocate arrays in velocity space
@@ -1320,7 +1370,7 @@ program Cavity
 
         iter = iter+1
         simTime = simTime+dt
-    enddo
+    end do
 
     !End timer
     call cpu_time(finish)
