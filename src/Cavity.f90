@@ -86,7 +86,7 @@ module ControlParameters
     !--------------------------------------------------
     real(KREAL), parameter                              :: CFL = 0.8 !CFL number
     ! real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
-    integer(KINT), parameter                            :: MAX_ITER = 5E5 !Maximal iteration number
+    ! integer(KINT), parameter                            :: MAX_ITER = 5E5 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
@@ -1250,7 +1250,7 @@ contains
         !Using keyword arguments
         open(unit=RSTFILE,file=RSTFILENAME//trim(fileName)//'.dat',status="replace",action="write")
         write(RSTFILE,*) "VARIABLES = X, Y, Density, U, V, T, P, QX, QY"
-        write(RSTFILE,*) "ZONE  T=Time: ",simTime,", I = ",IXMAX-IXMIN+1,", J = ",IYMIN-IYMAX+1,"DATAPACKING=BLOCK"
+        write(RSTFILE,*) "ZONE  T=Time: ",simTime,", I = ",IXMAX-IXMIN+1,", J = ",IYMAX-IYMIN+1,"DATAPACKING=BLOCK"
 
         !Write geometry (cell-centered)
         write(RSTFILE,"(6(ES23.16,2X))") ctr%x
@@ -1266,3 +1266,87 @@ contains
         deallocate(solution)
     end subroutine Output
 end module Writer
+
+!--------------------------------------------------
+!>Main program
+!--------------------------------------------------
+program Cavity
+    use Initialization
+    use Solver
+    use Writer
+    implicit none
+    real(KREAL)                                         :: start, finish
+    integer(KINT)                                       :: i,j
+    
+    !Initialization
+    call Init()
+
+    !Open file and write header
+    call date_and_time(DATE=date,TIME=time)
+    fileName = '_'//date//'_'//time(1:6)
+    open(unit=HSTFILE,file=HSTFILENAME//trim(fileName)//'.hst',status="replace",action="write") !open history file
+    write(HSTFILE,*) "VARIABLES = iter, simTime, dt" !write header
+
+    !Star timer
+    call cpu_time(start)
+
+    !Iteration
+    do while(.true.)
+        call TimeStep() !Calculate the time step
+        call Reconstruction() !Calculate the slope of distribution function
+        call Evolution() !Calculate flux across the interfaces
+        call Update() !Update cell averaged value
+
+        !Check stopping criterion
+        ! if (simTime>=MAX_TIME .or. iter>=MAX_ITER) exit
+        if(all(res<eps)) exit
+
+        !Log the iteration situation every 10 iterations
+        if (mod(iter,10)==0) then
+            write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
+            write(*,"(A18,4E15.7)") "res:",res
+            write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
+        end if
+
+        iter = iter+1
+        simTime = simTime+dt
+    enddo
+
+    !End timer
+    call cpu_time(finish)
+    print '("Run Time = ",f20.3," seconds.")', finish-start
+
+    !Close history file
+    close(HSTFILE)
+
+    !Output solution
+    call Output()
+
+    !Aftermath
+    !Deallocate array
+    deallocate(uSpace)
+    deallocate(vSpace)
+    deallocate(weight)
+    !Cell center
+    do j=IYMIN,IYMAX
+        do i=IXMIN,IXMAX
+            deallocate(ctr(i,j)%h)
+            deallocate(ctr(i,j)%b)
+            deallocate(ctr(i,j)%sh)
+            deallocate(ctr(i,j)%sb)
+        end do
+    end do
+    !Cell interface
+    do j=IYMIN,IYMAX
+        do i=IXMIN,IXMAX+1
+            deallocate(vface(i,j)%flux_h)
+            deallocate(vface(i,j)%flux_b)
+        end do
+    end do
+    do j=IYMIN,IYMAX+1
+        do i=IXMIN,IXMAX
+            deallocate(hface(i,j)%flux_h)
+            deallocate(hface(i,j)%flux_b)
+        end do
+    end do
+end program Cavity
