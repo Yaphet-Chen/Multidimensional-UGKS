@@ -996,3 +996,219 @@ contains
         deallocate(B_plus)
     end subroutine Update
 end module Solver
+
+!--------------------------------------------------
+!>Initialization of mesh and intial flow field
+!--------------------------------------------------
+module Initialization
+    use ControlParameters
+    use Tools
+    implicit none
+
+contains
+    !--------------------------------------------------
+    !>Main initialization subroutine
+    !--------------------------------------------------
+    subroutine Init()  
+        call InitUniformMesh() !Initialize Uniform mesh
+        ! call InitRandomMesh()
+        call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
+        call InitAllocation(uNum,vNum) !Allocate discrete velocity space
+        call InitFlowField() !Set the initial value
+    end subroutine Init
+    
+    !--------------------------------------------------
+    !>Initialize uniform mesh
+    !--------------------------------------------------
+    subroutine InitUniformMesh()
+        real(KREAL)                                     :: dx,dy
+        integer(KINT)                                   :: i,j
+
+        !Cell length
+        dx = (X_END-X_START)/(IXMAX-IXMIN+1)
+        dy = (Y_END-Y_START)/(IYMAX-IYMIN+1)
+
+        !Cell center
+        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX)
+            ctr(i,j)%x = X_START+(i-IXMIN+0.5)*dx
+            ctr(i,j)%y = Y_START+(j-IYMIN+0.5)*dy
+            ctr(i,j)%length(1) = dx
+            ctr(i,j)%length(2) = dy
+            ctr(i,j)%area = dx*dy
+        end forall
+        
+        !Vertical interface
+        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
+            vface(i,j)%length = dy
+            vface(i,j)%cosx = 1.0
+            vface(i,j)%cosy = 0.0
+        end forall
+
+        !Horizontal interface
+        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
+            hface(i,j)%length = dx
+            hface(i,j)%cosx = 0.0
+            hface(i,j)%cosy = 1.0
+        end forall
+    end subroutine InitUniformMesh
+
+    !--------------------------------------------------
+    !>Initialize random mesh
+    !--------------------------------------------------
+    subroutine InitRandomMesh()
+        real(KREAL)                                     :: dx(IXMIN:IXMAX),dy(IYMIN:IYMAX)
+        integer(KINT)                                   :: i,j
+
+        call random_number(dx)
+        call random_number(dy)
+
+        !Cell length
+        dx = dx/sum(dx)*(X_END-X_START)
+        dy = dy/sum(dy)*(Y_END-Y_START)
+
+        !Cell center
+        ctr(IXMIN,IYMIN)%x = X_START+0.5*dx(IXMIN)
+        ctr(IXMIN,IYMIN)%y = Y_START+0.5*dy(IYMIN)
+        ctr(IXMIN,IYMIN)%length(1) = dx(IXMIN)
+        ctr(IXMIN,IYMIN)%length(2) = dy(IYMIN)
+        ctr(IXMIN,IYMIN)%area = dx(IXMIN)*dy(IYMIN)
+        do i=IXMIN+1,IXMAX
+            ctr(i,IYMIN)%x = ctr(IXMIN,IYMIN)%x+dx(i)
+            ctr(i,IYMIN)%y = Y_START+0.5*dy(IYMIN)
+            ctr(i,IYMIN)%length(1) = dx(i)
+            ctr(i,IYMIN)%length(2) = dy(IYMIN)
+            ctr(i,IYMIN)%area = dx(i)*dy(IYMIN)
+        end do
+        do j=IYMIN+1,IYMAX
+            ctr(IXMIN,j)%x = X_START+0.5*dx(IXMIN)
+            ctr(IXMIN,j)%y = ctr(IXMIN,j)%x+dy(j)
+            ctr(IXMIN,j)%length(1) = dx(IXMIN)
+            ctr(IXMIN,j)%length(2) = dy(j)
+            ctr(IXMIN,j)%area = dx(IXMIN)*dy(j)
+        end do
+        do j=IYMIN+1,IYMAX
+            do i=IXMIN+1,IXMAX
+                ctr(i,j)%x = ctr(i-1,j)%x+dx(i)
+                ctr(i,j)%y = ctr(i,j-1)%y+dy(j)
+                ctr(i,j)%length(1) = dx(i)
+                ctr(i,j)%length(2) = dx(j)
+                ctr(i,j)%area = dx(i)*dy(j)
+            end do
+        end do
+    end subroutine InitRandomMesh
+
+    !--------------------------------------------------
+    !>Initialize discrete velocity space using Newton–Cotes formulas
+    !--------------------------------------------------
+    subroutine InitVelocityNewton(num_u,num_v)
+        integer(KINT), intent(inout)                    :: num_u,num_v
+        real(KREAL)                                     :: du,dv !Spacing in u and v velocity space
+        integer(KINT)                                   :: i,j
+
+        !Modify num_u and num_v if not appropriate
+        num_u = (num_u/4)*4+1
+        num_v = (num_v/4)*4+1
+
+        !Allocate array
+        allocate(uSpace(num_u,num_v))
+        allocate(vSpace(num_u,num_v))
+        allocate(weight(num_u,num_v))
+
+        !spacing in u and v velocity space
+        du = (U_MAX-U_MIN)/(num_u-1)
+        dv = (V_MAX-V_MIN)/(num_v-1)
+
+        !velocity space
+        forall(i=1:num_u,j=1:num_v)
+            uSpace(i,j) = U_MIN+(i-1)*du
+            vSpace(i,j) = V_MIN+(j-1)*dv
+            weight(i,j) = (newtonCoeff(i,num_u)*du)*(newtonCoeff(j,num_v)*dv)
+        end forall
+
+        contains
+            !--------------------------------------------------
+            !>Calculate the coefficient for newton-cotes formula
+            !>@param[in] idx          :index in velocity space
+            !>@param[in] num          :total number in velocity space
+            !>@return    newtonCoeff  :coefficient for newton-cotes formula
+            !--------------------------------------------------
+            pure function newtonCoeff(idx,num)
+                integer(KINT), intent(in)               :: idx,num
+                real(KREAL)                             :: newtonCoeff
+
+                if (idx==1 .or. idx==num) then 
+                    newtonCoeff = 14.0/45.0
+                else if (mod(idx-5,4)==0) then
+                    newtonCoeff = 28.0/45.0
+                else if (mod(idx-3,4)==0) then
+                    newtonCoeff = 24.0/45.0
+                else
+                    newtonCoeff = 64.0/45.0
+                end if
+            end function newtonCoeff
+    end subroutine InitVelocityNewton
+
+    !--------------------------------------------------
+    !>Allocate arrays in velocity space
+    !--------------------------------------------------
+    subroutine InitAllocation(num_u,num_v)
+        integer(KINT), intent(in)                       :: num_u,num_v
+        integer(KINT)                                   :: i,j
+
+        !Cell center
+        do j=IYMIN,IYMAX
+            do i=IXMIN,IXMAX
+                allocate(ctr(i,j)%h(num_u,num_v))
+                allocate(ctr(i,j)%b(num_u,num_v))
+                allocate(ctr(i,j)%sh(num_u,num_v,2))
+                allocate(ctr(i,j)%sb(num_u,num_v,2))
+            end do
+        end do
+
+        !Cell interface
+        do j=IYMIN,IYMAX
+            do i=IXMIN,IXMAX+1
+                allocate(vface(i,j)%flux_h(num_u,num_v))
+                allocate(vface(i,j)%flux_b(num_u,num_v))
+            end do
+        end do
+
+        do j=IYMIN,IYMAX+1
+            do i=IXMIN,IXMAX
+                allocate(hface(i,j)%flux_h(num_u,num_v))
+                allocate(hface(i,j)%flux_b(num_u,num_v))
+            end do
+        end do
+    end subroutine InitAllocation
+
+    !--------------------------------------------------
+    !>Set the initial condition
+    !--------------------------------------------------
+    subroutine InitFlowField()
+        real(KREAL), allocatable, dimension(:,:)        :: H,B !Reduced distribution functions
+        real(KREAL)                                     :: conVars(4) !Conservative variables
+        integer(KINT)                                   :: i,j
+
+        !Allocation
+        allocate(H(uNum,vNum))
+        allocate(B(uNum,vNum))
+
+        !Get conservative variables and Maxwellian distribution function
+        conVars = GetConserved(INIT_GAS)
+        call DiscreteMaxwell(H,B,uSpace,vSpace,INIT_GAS)
+
+        !Initialize field
+        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX)
+            ctr(i,j)%conVars = conVars
+            ctr(i,j)%h = H
+            ctr(i,j)%b = B
+            ctr(i,j)%sh = 0.0
+            ctr(i,j)%sb = 0.0
+        end forall
+
+        !Deallocation
+        deallocate(H)
+        deallocate(B)
+    end subroutine InitFlowField
+    
+end module Initialization
