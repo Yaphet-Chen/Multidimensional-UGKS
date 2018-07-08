@@ -1271,6 +1271,41 @@ contains
         deallocate(B)
     end subroutine InitFlowField
     
+    !--------------------------------------------------
+    !>Deallocate arrays aftermath
+    !--------------------------------------------------
+    subroutine AfterDeallocation
+        integer(KINT)                                   :: i,j
+
+        !Deallocate array
+        deallocate(uSpace)
+        deallocate(vSpace)
+        deallocate(weight)
+
+        !Cell center
+        do j=IYMIN,IYMAX
+            do i=IXMIN,IXMAX
+                deallocate(ctr(i,j)%h)
+                deallocate(ctr(i,j)%b)
+                deallocate(ctr(i,j)%sh)
+                deallocate(ctr(i,j)%sb)
+            end do
+        end do
+
+        !Cell interface
+        do j=IYMIN,IYMAX
+            do i=IXMIN,IXMAX+1
+                deallocate(vface(i,j)%flux_h)
+                deallocate(vface(i,j)%flux_b)
+            end do
+        end do
+        do j=IYMIN,IYMAX+1
+            do i=IXMIN,IXMAX
+                deallocate(hface(i,j)%flux_h)
+                deallocate(hface(i,j)%flux_b)
+            end do
+        end do
+    end subroutine AfterDeallocation
 end module Initialization
 
 module Writer
@@ -1336,7 +1371,6 @@ program Cavity
     use Writer
     implicit none
     real(KREAL)                                         :: start, finish
-    integer(KINT)                                       :: i,j
     
     !Initialization
     call Init()
@@ -1383,30 +1417,5 @@ program Cavity
     call Output()
 
     !Aftermath
-    !Deallocate array
-    deallocate(uSpace)
-    deallocate(vSpace)
-    deallocate(weight)
-    !Cell center
-    do j=IYMIN,IYMAX
-        do i=IXMIN,IXMAX
-            deallocate(ctr(i,j)%h)
-            deallocate(ctr(i,j)%b)
-            deallocate(ctr(i,j)%sh)
-            deallocate(ctr(i,j)%sb)
-        end do
-    end do
-    !Cell interface
-    do j=IYMIN,IYMAX
-        do i=IXMIN,IXMAX+1
-            deallocate(vface(i,j)%flux_h)
-            deallocate(vface(i,j)%flux_b)
-        end do
-    end do
-    do j=IYMIN,IYMAX+1
-        do i=IXMIN,IXMAX
-            deallocate(hface(i,j)%flux_h)
-            deallocate(hface(i,j)%flux_b)
-        end do
-    end do
+    call AfterDeallocation()
 end program Cavity
