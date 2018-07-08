@@ -183,7 +183,7 @@ contains
 
         LocalFrame(1) = w(1)
         LocalFrame(2) = w(2)*cosx+w(3)*cosy
-        LocalFrame(3) = -w(2)*cosy+w(3)*cosx
+        LocalFrame(3) =-w(2)*cosy+w(3)*cosx
         LocalFrame(4) = w(4)
     end function LocalFrame
 
@@ -194,8 +194,8 @@ contains
     !>@return    GlobalFrame  :macro variables in global frame
     !--------------------------------------------------
     function GlobalFrame(w,cosx,cosy)
-        real(KREAL) , intent(in)                        :: w(4)
-        real(KREAL) , intent(in)                        :: cosx,cosy
+        real(KREAL), intent(in)                         :: w(4)
+        real(KREAL), intent(in)                         :: cosx,cosy
         real(KREAL)                                     :: GlobalFrame(4)
 
         GlobalFrame(1) = w(1)
@@ -205,7 +205,7 @@ contains
     end function GlobalFrame
 
     !--------------------------------------------------
-    !>Convert primary variables to conservative variables
+    !>Convert primary variables to conservative variables in the equilibrium state
     !>@param[in] prim          :primary variables
     !>@return    GetConserved  :conservative variables
     !--------------------------------------------------
@@ -220,7 +220,7 @@ contains
     end function GetConserved
 
     !--------------------------------------------------
-    !>Convert conservative variables to primary variables
+    !>Convert conservative variables to primary variables in the equilibrium state
     !>@param[in] w           :conservative variables
     !>@return    GetPrimary  :primary variables
     !--------------------------------------------------
@@ -272,7 +272,7 @@ contains
         real(KREAL), dimension(:,:), intent(in)         :: h,b
         real(KREAL), dimension(:,:), intent(in)         :: vn,vt
         real(KREAL), intent(in)                         :: prim(4)
-        real(KREAL)                                     :: GetHeatFlux(2) !heat flux in normal and tangential direction
+        real(KREAL)                                     :: GetHeatFlux(2) !Heat flux in normal and tangential direction
 
         GetHeatFlux(1) = 0.5*(sum(weight*(vn-prim(2))*((vn-prim(2))**2+(vt-prim(3))**2)*h)+sum(weight*(vn-prim(2))*b))
         GetHeatFlux(2) = 0.5*(sum(weight*(vt-prim(3))*((vn-prim(2))**2+(vt-prim(3))**2)*h)+sum(weight*(vt-prim(3))*b))
@@ -296,7 +296,7 @@ contains
         H_plus = 0.8*(1-PR)*prim(4)**2/prim(1)*&
                     ((vn-prim(2))*qf(1)+(vt-prim(3))*qf(2))*(2*prim(4)*((vn-prim(2))**2+(vt-prim(3))**2)+CK-5)*H
         B_plus = 0.8*(1-PR)*prim(4)**2/prim(1)*&
-                    ((vn-prim(2))*qf(1)+(vt-prim(3))*qf(2))*(2*prim(4)*((vn-prim(2))**2+(vt-prim(3)**2))+CK-3)*B
+                    ((vn-prim(2))*qf(1)+(vt-prim(3))*qf(2))*(2*prim(4)*((vn-prim(2))**2+(vt-prim(3))**2)+CK-3)*B
     end subroutine ShakhovPart
     
     !--------------------------------------------------
@@ -412,10 +412,10 @@ contains
         !Calculate a^L,a^R
         !--------------------------------------------------
         sw = (conVars-LocalFrame(leftCell%conVars,face%cosx,face%cosy))/(0.5*leftCell%length(idx)) !left slope of conVars
-        aL = MicroSlope(prim,sw) !calculate a^L
+        aL = MicroSlope(prim,sw) !Calculate a^L
 
         sw = (LocalFrame(rightCell%conVars,face%cosx,face%cosy)-conVars)/(0.5*rightCell%length(idx)) !right slope of conVars
-        aR = MicroSlope(prim,sw) !calculate a^R
+        aR = MicroSlope(prim,sw) !Calculate a^R
 
         !--------------------------------------------------
         !Calculate time slope of conVars and A
