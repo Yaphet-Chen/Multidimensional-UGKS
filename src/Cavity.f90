@@ -22,10 +22,10 @@ module ConstantVariables
     !Direction
     integer(KINT), parameter                            :: IDIRC = 1 !I direction
     integer(KINT), parameter                            :: JDIRC = 2 !J direction
-    
+
     !Rotation
-    integer,parameter :: RN = 1 !no frame rotation
-    integer,parameter :: RY = -1 !with frame rotation
+    integer(KINT), parameter                            :: RN = 1 !No frame rotation
+    integer(KINT), parameter                            :: RY = -1 !With frame rotation
 end module ConstantVariables
 
 !--------------------------------------------------
@@ -85,8 +85,8 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     real(KREAL), parameter                              :: CFL = 0.8 !CFL number
-    ! real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
-    ! integer(KINT), parameter                            :: MAX_ITER = 5E5 !Maximal iteration number
+    real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
+    integer(KINT), parameter                            :: MAX_ITER = 5E3 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
@@ -105,8 +105,8 @@ module ControlParameters
     real(KREAL), parameter                              :: OMEGA = 0.81 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
     real(KREAL), parameter                              :: KN = 0.075 !Knudsen number in reference state
-    real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in HS model
-    real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in HS model
+    real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
+    real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
     real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
 
     !Geometry
@@ -114,7 +114,6 @@ module ControlParameters
     integer(KINT), parameter                            :: X_NUM = 45, Y_NUM = 45 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
-    integer(KINT), parameter                            :: GHOST_NUM = 1 !Ghost cell number
 
     !--------------------------------------------------
     !Initial flow field
@@ -133,13 +132,22 @@ module ControlParameters
     !      ----------------          |
     !            (i,j)               |
     !---------------------------------
-    type(CellCenter)                                    :: ctr(IXMIN:IXMAX,IYMIN:IYMAX) !Cell center (with ghost cell)
+    type(CellCenter)                                    :: ctr(IXMIN:IXMAX,IYMIN:IYMAX) !Cell center
     type(CellInterface)                                 :: vface(IXMIN:IXMAX+1,IYMIN:IYMAX),hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Vertical and horizontal interfaces
 
     !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
     real(KREAL), parameter, dimension(4)                :: INIT_GAS = [1.0, 0.0, 0.0, 1.0]
 
     !Boundary condition (density, u-velocity, v-velocity, lambda=1/temperature)
+    !------------------------------
+    !              North
+    !          ------------
+    !          |           |
+    !   West   |           |   East
+    !          |           |
+    !          ------------
+    !              South
+    !------------------------------
     real(KREAL), parameter, dimension(4)                :: BC_W = [1.0, 0.0, 0.0, 1.0] !West boundary
     real(KREAL), parameter, dimension(4)                :: BC_E = [1.0, 0.0, 0.0, 1.0] !East boundary
     real(KREAL), parameter, dimension(4)                :: BC_S = [1.0, 0.0, 0.0, 1.0] !South boundary
@@ -148,11 +156,10 @@ module ControlParameters
     !--------------------------------------------------
     !Discrete velocity space
     !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 64, vNum = 64 !Number of points in velocity space for u and v
-    real(KREAL), parameter                              :: U_MIN = -15.0, U_MAX = +15.0, V_MIN = -15.0, V_MAX = +15.0 !Minimum and maximum micro velocity
+    integer(KINT)                                       :: uNum = 45, vNum = 45 !Number of points in velocity space for u and v
+    real(KREAL), parameter                              :: U_MIN = -6.0, U_MAX = +6.0, V_MIN = -6.0, V_MAX = +6.0 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
     real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
-
 end module ControlParameters
 
 !--------------------------------------------------
@@ -986,6 +993,9 @@ contains
         end do
         !$omp end do
         !$omp end parallel
+
+        !Calculate final residual
+        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)
         
         !Deallocate arrays
         deallocate(H_old)
@@ -1250,7 +1260,7 @@ contains
         !Using keyword arguments
         open(unit=RSTFILE,file=RSTFILENAME//trim(fileName)//'.dat',status="replace",action="write")
         write(RSTFILE,*) "VARIABLES = X, Y, Density, U, V, T, P, QX, QY"
-        write(RSTFILE,*) "ZONE  T=Time: ",simTime,", I = ",IXMAX-IXMIN+1,", J = ",IYMAX-IYMIN+1,"DATAPACKING=BLOCK"
+        write(RSTFILE,*) "ZONE I = ",IXMAX-IXMIN+1,", J = ",IYMAX-IYMIN+1,", DATAPACKING=BLOCK"
 
         !Write geometry (cell-centered)
         write(RSTFILE,"(6(ES23.16,2X))") ctr%x
@@ -1299,7 +1309,7 @@ program Cavity
 
         !Check stopping criterion
         ! if (simTime>=MAX_TIME .or. iter>=MAX_ITER) exit
-        if(all(res<eps)) exit
+        if(all(res<EPS) .or. iter>=MAX_ITER) exit
 
         !Log the iteration situation every 10 iterations
         if (mod(iter,10)==0) then
