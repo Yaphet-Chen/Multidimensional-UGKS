@@ -255,6 +255,23 @@ contains
     end subroutine DiscreteMaxwell
 
     !--------------------------------------------------
+    !>Calculate heat flux
+    !>@param[in] h,b           :distribution function
+    !>@param[in] vn,vt         :normal and tangential velocity
+    !>@param[in] prim          :primary variables
+    !>@return    GetHeatFlux   :heat flux in normal and tangential direction
+    !--------------------------------------------------
+    function GetHeatFlux(h,b,vn,vt,prim)
+        real(KREAL), dimension(:,:), intent(in)         :: h,b
+        real(KREAL), dimension(:,:), intent(in)         :: vn,vt
+        real(KREAL), intent(in)                         :: prim(4)
+        real(KREAL)                                     :: GetHeatFlux(2) !heat flux in normal and tangential direction
+
+        GetHeatFlux(1) = 0.5*(sum(weight*(vn-prim(2))*((vn-prim(2))**2+(vt-prim(3))**2)*h)+sum(weight*(vn-prim(2))*b))
+        GetHeatFlux(2) = 0.5*(sum(weight*(vt-prim(3))*((vn-prim(2))**2+(vt-prim(3))**2)*h)+sum(weight*(vt-prim(3))*b))
+    end function GetHeatFlux
+
+    !--------------------------------------------------
     !>Calculate the Shakhov part H^+, B^+
     !>@param[in]  H,B           :Maxwellian distribution function
     !>@param[in]  vn,vt         :normal and tangential velocity
@@ -616,23 +633,6 @@ contains
         GetTau = MU_REF*2.0*prim(4)**(1-OMEGA)/prim(1)
     end function GetTau
     
-    !--------------------------------------------------
-    !>Calculate heat flux
-    !>@param[in] h,b           :distribution function
-    !>@param[in] vn,vt         :normal and tangential velocity
-    !>@param[in] prim          :primary variables
-    !>@return    GetHeatFlux   :heat flux in normal and tangential direction
-    !--------------------------------------------------
-    function GetHeatFlux(h,b,vn,vt,prim)
-        real(KREAL), dimension(:,:), intent(in)         :: h,b
-        real(KREAL), dimension(:,:), intent(in)         :: vn,vt
-        real(KREAL), intent(in)                         :: prim(4)
-        real(KREAL)                                     :: GetHeatFlux(2) !heat flux in normal and tangential direction
-
-        GetHeatFlux(1) = 0.5*(sum(weight*(vn-prim(2))*((vn-prim(2))**2+(vt-prim(3))**2)*h)+sum(weight*(vn-prim(2))*b))
-        GetHeatFlux(2) = 0.5*(sum(weight*(vt-prim(3))*((vn-prim(2))**2+(vt-prim(3))**2)*h)+sum(weight*(vt-prim(3))*b))
-    end function GetHeatFlux
-
     !--------------------------------------------------
     !>calculate moments of velocity and \xi
     !>@param[in] prim :primary variables
@@ -1212,3 +1212,57 @@ contains
     end subroutine InitFlowField
     
 end module Initialization
+
+module Writer
+    use Tools
+    implicit none
+    character(len=8)                                    :: date
+    character(len=10)                                   :: time
+    character(len=100)                                  :: fileName
+contains
+    !--------------------------------------------------
+    !>Write result
+    !--------------------------------------------------
+    subroutine Output()
+        real(KREAL)                                     :: prim(4)
+        real(KREAL), dimension(:,:,:), allocatable      :: solution
+        integer(KINT)                                   :: i,j
+
+        !--------------------------------------------------
+        !Prepare solutions
+        !--------------------------------------------------
+        allocate(solution(7,IXMIN:IXMAX,IYMIN:IYMAX))
+        
+        do j=IYMIN,IYMAX
+            do i=IXMIN,IXMAX
+                prim = GetPrimary(ctr(i,j)%conVars)
+                solution(1:3,i,j) = prim(1:3) !Density,u,v
+                solution(4,i,j) = 1/prim(4) !Temperature
+                solution(5,i,j) = 0.5*solution(4,i,j)*solution(1,i,j) !Pressure
+                solution(6:7,i,j) = GetHeatFlux(ctr(i,j)%h,ctr(i,j)%b,uSpace,vSpace,prim) !Heat flux
+            end do
+        end do
+
+        !--------------------------------------------------
+        !Write to file
+        !--------------------------------------------------
+        !Open result file and write header
+        !Using keyword arguments
+        open(unit=RSTFILE,file=RSTFILENAME//trim(fileName)//'.dat',status="replace",action="write")
+        write(RSTFILE,*) "VARIABLES = X, Y, Density, U, V, T, P, QX, QY"
+        write(RSTFILE,*) "ZONE  T=Time: ",simTime,", I = ",IXMAX-IXMIN+1,", J = ",IYMIN-IYMAX+1,"DATAPACKING=BLOCK"
+
+        !Write geometry (cell-centered)
+        write(RSTFILE,"(6(ES23.16,2X))") ctr%x
+        write(RSTFILE,"(6(ES23.16,2X))") ctr%y
+
+        !Write solution (cell-centered)
+        do i=1,7
+            write(RSTFILE,"(6(ES23.16,2X))") solution(i,:,:)
+        end do
+
+        !close file
+        close(RSTFILE)
+        deallocate(solution)
+    end subroutine Output
+end module Writer
