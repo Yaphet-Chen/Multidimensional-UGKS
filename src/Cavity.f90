@@ -25,9 +25,14 @@ module ConstantVariables
     integer(KINT), parameter                            :: CENTRAL = 2 !Central difference reconstruction
 
     !Mesh type
-    integer(KINT), parameter                            :: UNIFORM = 0
-    integer(KINT), parameter                            :: NONUNIFORM = 1
-    integer(KINT), parameter                            :: RAND = 2
+    integer(KINT), parameter                            :: UNIFORM = 0 !Uniform mesh
+    integer(KINT), parameter                            :: NONUNIFORM = 1 !Non-uniform mesh
+    integer(KINT), parameter                            :: RAND = 2 !Random mesh
+
+    !Quadrature method
+    integer(KINT), parameter                            :: NEWTON = 0 !Newton–Cotes
+    integer(KINT), parameter                            :: GAUSS = 1 !Gauss-Hermite
+
     !Direction
     integer(KINT), parameter                            :: IDIRC = 1 !I direction
     integer(KINT), parameter                            :: JDIRC = 2 !J direction
@@ -95,9 +100,10 @@ module ControlParameters
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     real(KREAL), parameter                              :: CFL = 0.8 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
-    integer(KINT), parameter                            :: MAX_ITER = 5E1 !Maximal iteration number
+    integer(KINT), parameter                            :: MAX_ITER = 5E3 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
@@ -1049,13 +1055,21 @@ contains
     !--------------------------------------------------
     subroutine Init()
         call InitMesh() !Initialize mesh
-        ! call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
-        call InitVelocityGauss() !Initialize uSpace, vSpace and weights
-        ! call InitVelocity()
+        call InitVelocity() !Initialize uSpace, vSpace and weights
         call InitAllocation(uNum,vNum) !Allocate discrete velocity space
         call InitFlowField() !Set the initial value
     end subroutine Init
     
+    subroutine InitVelocity()
+        if (QUADRATURE_TYPE==NEWTON) then
+            call InitVelocityNewton(uNum,vNum) !Initialize discrete velocity space using Newton–Cotes formulas
+        elseif (QUADRATURE_TYPE==GAUSS) then
+            call InitVelocityGauss() !Initialize discrete velocity space using Gaussian-Hermite type quadrature
+        else
+            stop "Error in QUADRATURE_TYPE!"
+        end if
+    end subroutine InitVelocity
+
     !--------------------------------------------------
     !>Initialize mesh
     !--------------------------------------------------
