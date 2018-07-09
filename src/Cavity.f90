@@ -1053,8 +1053,8 @@ contains
     subroutine Init()  
         call InitUniformMesh() !Initialize Uniform mesh
         ! call InitRandomMesh()
-        ! call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
-        call InitVelocityGauss() !Initialize uSpace, vSpace and weights
+        call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
+        ! call InitVelocityGauss() !Initialize uSpace, vSpace and weights
         call InitAllocation(uNum,vNum) !Allocate discrete velocity space
         call InitFlowField() !Set the initial value
     end subroutine Init
@@ -1115,7 +1115,7 @@ contains
         ctr(IXMIN,IYMIN)%length(2) = dy(IYMIN)
         ctr(IXMIN,IYMIN)%area = dx(IXMIN)*dy(IYMIN)
         do i=IXMIN+1,IXMAX
-            ctr(i,IYMIN)%x = ctr(IXMIN,IYMIN)%x+dx(i)
+            ctr(i,IYMIN)%x = ctr(i-1,IYMIN)%x+dx(i)
             ctr(i,IYMIN)%y = Y_START+0.5*dy(IYMIN)
             ctr(i,IYMIN)%length(1) = dx(i)
             ctr(i,IYMIN)%length(2) = dy(IYMIN)
@@ -1123,7 +1123,7 @@ contains
         end do
         do j=IYMIN+1,IYMAX
             ctr(IXMIN,j)%x = X_START+0.5*dx(IXMIN)
-            ctr(IXMIN,j)%y = ctr(IXMIN,j)%x+dy(j)
+            ctr(IXMIN,j)%y = ctr(IXMIN,j-1)%y+dy(j)
             ctr(IXMIN,j)%length(1) = dx(IXMIN)
             ctr(IXMIN,j)%length(2) = dy(j)
             ctr(IXMIN,j)%area = dx(IXMIN)*dy(j)
@@ -1425,6 +1425,7 @@ program Cavity
         !Check stopping criterion
         ! if (simTime>=MAX_TIME .or. iter>=MAX_ITER) exit
         if(all(res<EPS) .or. iter>=MAX_ITER) exit
+        ! if(isnan(res(1)) .or. isnan(res(4))) exit
 
         !Log the iteration situation every 10 iterations
         if (mod(iter,10)==0) then
