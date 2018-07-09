@@ -92,7 +92,7 @@ module ControlParameters
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     real(KREAL), parameter                              :: CFL = 0.8 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
-    integer(KINT), parameter                            :: MAX_ITER = 5E3 !Maximal iteration number
+    integer(KINT), parameter                            :: MAX_ITER = 5E2 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
@@ -1051,8 +1051,9 @@ contains
     !>Main initialization subroutine
     !--------------------------------------------------
     subroutine Init()  
-        call InitUniformMesh() !Initialize Uniform mesh
+        ! call InitUniformMesh() !Initialize Uniform mesh
         ! call InitRandomMesh()
+        call InitNonUniformMesh()
         ! call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
         call InitVelocityGauss() !Initialize uSpace, vSpace and weights
         call InitAllocation(uNum,vNum) !Allocate discrete velocity space
@@ -1152,6 +1153,73 @@ contains
             hface(i,j)%cosy = 1.0
         end forall
     end subroutine InitRandomMesh
+
+    !--------------------------------------------------
+    !>Initialize Nonuniform mesh
+    !--------------------------------------------------
+    subroutine InitNonUniformMesh()
+        real(KREAL)                                     :: dx(IXMIN:IXMAX),dy(IYMIN:IYMAX)
+        real(KREAL)                                     :: x(IXMIN:IXMAX+1),y(IYMIN:IYMAX+1)
+        integer(KINT)                                   :: i,j
+
+        !Cell length
+        x = (/(i,i=IXMIN-1,IXMAX)/)
+        y = (/(j,j=IYMIN-1,IYMAX)/)
+        x = x/IXMAX
+        y = y/IYMAX
+        x = (10.0-15.0*x+6.0*x**2)*x**3*(X_END-X_START)
+        y = (10.0-15.0*y+6.0*y**2)*y**3*(Y_END-Y_START)
+        do i=IXMIN,IXMAX
+            dx(i) = x(i+1)-x(i)
+        end do
+        do j=IYMIN,IYMAX
+            dy(j) = y(j+1)-y(j)
+        end do
+
+        !Cell center
+        ctr(IXMIN,IYMIN)%x = X_START+0.5*dx(IXMIN)
+        ctr(IXMIN,IYMIN)%y = Y_START+0.5*dy(IYMIN)
+        ctr(IXMIN,IYMIN)%length(1) = dx(IXMIN)
+        ctr(IXMIN,IYMIN)%length(2) = dy(IYMIN)
+        ctr(IXMIN,IYMIN)%area = dx(IXMIN)*dy(IYMIN)
+        do i=IXMIN+1,IXMAX
+            ctr(i,IYMIN)%x = ctr(i-1,IYMIN)%x+dx(i)
+            ctr(i,IYMIN)%y = Y_START+0.5*dy(IYMIN)
+            ctr(i,IYMIN)%length(1) = dx(i)
+            ctr(i,IYMIN)%length(2) = dy(IYMIN)
+            ctr(i,IYMIN)%area = dx(i)*dy(IYMIN)
+        end do
+        do j=IYMIN+1,IYMAX
+            ctr(IXMIN,j)%x = X_START+0.5*dx(IXMIN)
+            ctr(IXMIN,j)%y = ctr(IXMIN,j-1)%y+dy(j)
+            ctr(IXMIN,j)%length(1) = dx(IXMIN)
+            ctr(IXMIN,j)%length(2) = dy(j)
+            ctr(IXMIN,j)%area = dx(IXMIN)*dy(j)
+        end do
+        do j=IYMIN+1,IYMAX
+            do i=IXMIN+1,IXMAX
+                ctr(i,j)%x = ctr(i-1,j)%x+dx(i)
+                ctr(i,j)%y = ctr(i,j-1)%y+dy(j)
+                ctr(i,j)%length(1) = dx(i)
+                ctr(i,j)%length(2) = dx(j)
+                ctr(i,j)%area = dx(i)*dy(j)
+            end do
+        end do
+
+        !Vertical interface
+        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
+            vface(i,j)%length = dy(j)
+            vface(i,j)%cosx = 1.0
+            vface(i,j)%cosy = 0.0
+        end forall
+
+        !Horizontal interface
+        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
+            hface(i,j)%length = dx(i)
+            hface(i,j)%cosx = 0.0
+            hface(i,j)%cosy = 1.0
+        end forall
+    end subroutine InitNonUniformMesh
 
     !--------------------------------------------------
     !>Initialize discrete velocity space using Newton–Cotes formulas
