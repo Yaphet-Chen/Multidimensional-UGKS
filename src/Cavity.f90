@@ -1053,8 +1053,8 @@ contains
     subroutine Init()  
         call InitUniformMesh() !Initialize Uniform mesh
         ! call InitRandomMesh()
-        call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
-        ! call InitVelocityGauss() !Initialize uSpace, vSpace and weights
+        ! call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
+        call InitVelocityGauss() !Initialize uSpace, vSpace and weights
         call InitAllocation(uNum,vNum) !Allocate discrete velocity space
         call InitFlowField() !Set the initial value
     end subroutine Init
@@ -1137,6 +1137,20 @@ contains
                 ctr(i,j)%area = dx(i)*dy(j)
             end do
         end do
+
+        !Vertical interface
+        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
+            vface(i,j)%length = dy(j)
+            vface(i,j)%cosx = 1.0
+            vface(i,j)%cosy = 0.0
+        end forall
+
+        !Horizontal interface
+        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
+            hface(i,j)%length = dx(i)
+            hface(i,j)%cosx = 0.0
+            hface(i,j)%cosy = 1.0
+        end forall
     end subroutine InitRandomMesh
 
     !--------------------------------------------------
