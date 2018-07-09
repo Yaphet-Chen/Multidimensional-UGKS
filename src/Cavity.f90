@@ -18,6 +18,11 @@ module ConstantVariables
     real(KREAL), parameter                              :: PI = 4.0*atan(1.0) !Pi
     real(KREAL), parameter                              :: SMV = tiny(0.0) !Small value to avoid 0/0
     real(KREAL), parameter                              :: UP = 1.0 !Used in sign() function
+    
+    !Reconstruction
+    integer(KINT), parameter                            :: FIRST_ORDER = 0 !First order reconstruction
+    integer(KINT), parameter                            :: LIMITER = 1 !VanleerLimiter reconstruction
+    integer(KINT), parameter                            :: CENTRAL = 2 !Central difference reconstruction
 
     !Direction
     integer(KINT), parameter                            :: IDIRC = 1 !I direction
@@ -84,6 +89,7 @@ module ControlParameters
     !--------------------------------------------------
     !Variables to control the simulation
     !--------------------------------------------------
+    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     real(KREAL), parameter                              :: CFL = 0.8 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E3 !Maximal iteration number
@@ -114,6 +120,14 @@ module ControlParameters
     integer(KINT), parameter                            :: X_NUM = 45, Y_NUM = 45 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
+    
+    !--------------------------------------------------
+    !Discrete velocity space
+    !--------------------------------------------------
+    integer(KINT)                                       :: uNum = 45, vNum = 45 !Number of points in velocity space for u and v
+    real(KREAL)                                         :: U_MIN = -6.0, U_MAX = +6.0, V_MIN = -6.0, V_MAX = +6.0 !Minimum and maximum micro velocity
+    real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
+    real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
 
     !--------------------------------------------------
     !Initial flow field
@@ -152,14 +166,6 @@ module ControlParameters
     real(KREAL), parameter, dimension(4)                :: BC_E = [1.0, 0.0, 0.0, 1.0] !East boundary
     real(KREAL), parameter, dimension(4)                :: BC_S = [1.0, 0.0, 0.0, 1.0] !South boundary
     real(KREAL), parameter, dimension(4)                :: BC_N = [1.0, 0.15, 0.0, 1.0] !North boundary
-
-    !--------------------------------------------------
-    !Discrete velocity space
-    !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 45, vNum = 45 !Number of points in velocity space for u and v
-    real(KREAL)                                         :: U_MIN = -6.0, U_MAX = +6.0, V_MIN = -6.0, V_MAX = +6.0 !Minimum and maximum micro velocity
-    real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
-    real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
 end module ControlParameters
 
 !--------------------------------------------------
@@ -784,7 +790,15 @@ contains
         type(CellCenter), intent(inout)                 :: leftCell,rightCell
         integer(KINT), intent(in)                       :: idx
 
-        call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
+        
+        if (RECONSTRUCTION_METHOD==LIMITER) then
+            call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
+        elseif (RECONSTRUCTION_METHOD==CENTRAL) then
+            targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+        else
+            stop "Error in RECONSTRUCTION_METHOD!"
+        end if
     end subroutine InterpBoundary
 
     !--------------------------------------------------
@@ -799,7 +813,14 @@ contains
         type(CellCenter), intent(inout)                 :: targetCell
         integer(KINT), intent(in)                       :: idx
 
-        call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
+        if (RECONSTRUCTION_METHOD==LIMITER) then
+            call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
+        elseif (RECONSTRUCTION_METHOD==CENTRAL) then
+            targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
+            targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
+        else
+            stop "Error in RECONSTRUCTION_METHOD!"
+        end if
     end subroutine InterpInner
 
     !--------------------------------------------------
@@ -821,6 +842,12 @@ contains
     !--------------------------------------------------
     subroutine Reconstruction()
         integer(KINT)                                   :: i,j
+
+        if (RECONSTRUCTION_METHOD=FIRST_ORDER) then
+            ctr%sh = 0.0
+            ctr%sb = 0.0
+            return
+        end if
 
         !$omp parallel
         !--------------------------------------------------
