@@ -24,6 +24,10 @@ module ConstantVariables
     integer(KINT), parameter                            :: LIMITER = 1 !VanleerLimiter reconstruction
     integer(KINT), parameter                            :: CENTRAL = 2 !Central difference reconstruction
 
+    !Mesh type
+    integer(KINT), parameter                            :: UNIFORM = 0
+    integer(KINT), parameter                            :: NONUNIFORM = 1
+    integer(KINT), parameter                            :: RAND = 2
     !Direction
     integer(KINT), parameter                            :: IDIRC = 1 !I direction
     integer(KINT), parameter                            :: JDIRC = 2 !J direction
@@ -90,9 +94,10 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
+    integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     real(KREAL), parameter                              :: CFL = 0.8 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
-    integer(KINT), parameter                            :: MAX_ITER = 5E2 !Maximal iteration number
+    integer(KINT), parameter                            :: MAX_ITER = 5E1 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
@@ -843,15 +848,7 @@ contains
     subroutine Reconstruction()
         integer(KINT)                                   :: i,j
 
-        if (RECONSTRUCTION_METHOD==FIRST_ORDER) then
-            do j=IYMIN,IYMAX
-                do i=IXMIN,IXMAX
-                    ctr(i,j)%sh = 0.0
-                    ctr(i,j)%sb = 0.0
-                end do
-            end do
-            return
-        end if
+        if (RECONSTRUCTION_METHOD==FIRST_ORDER) return
 
         !$omp parallel
         !--------------------------------------------------
@@ -1050,16 +1047,30 @@ contains
     !--------------------------------------------------
     !>Main initialization subroutine
     !--------------------------------------------------
-    subroutine Init()  
-        ! call InitUniformMesh() !Initialize Uniform mesh
-        ! call InitRandomMesh()
-        call InitNonUniformMesh()
+    subroutine Init()
+        call InitMesh() !Initialize mesh
         ! call InitVelocityNewton(uNum,vNum) !Initialize uSpace, vSpace and weights
         call InitVelocityGauss() !Initialize uSpace, vSpace and weights
+        ! call InitVelocity()
         call InitAllocation(uNum,vNum) !Allocate discrete velocity space
         call InitFlowField() !Set the initial value
     end subroutine Init
     
+    !--------------------------------------------------
+    !>Initialize mesh
+    !--------------------------------------------------
+    subroutine InitMesh()
+        if (MESH_TYPE==UNIFORM) then
+            call InitUniformMesh() !Initialize Uniform mesh
+        elseif (MESH_TYPE==NONUNIFORM) then
+            call InitNonUniformMesh()
+        elseif (MESH_TYPE==RAND) then
+            call InitRandomMesh()
+        else
+            stop "Error in MESH_TYPE!"
+        end if
+    end subroutine InitMesh
+
     !--------------------------------------------------
     !>Initialize uniform mesh
     !--------------------------------------------------
@@ -1335,6 +1346,8 @@ contains
                 allocate(ctr(i,j)%b(num_u,num_v))
                 allocate(ctr(i,j)%sh(num_u,num_v,2))
                 allocate(ctr(i,j)%sb(num_u,num_v,2))
+                ctr(i,j)%sh = 0.0
+                ctr(i,j)%sb = 0.0
             end do
         end do
 
