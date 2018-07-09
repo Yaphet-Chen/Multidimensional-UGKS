@@ -843,9 +843,13 @@ contains
     subroutine Reconstruction()
         integer(KINT)                                   :: i,j
 
-        if (RECONSTRUCTION_METHOD=FIRST_ORDER) then
-            ctr%sh = 0.0
-            ctr%sb = 0.0
+        if (RECONSTRUCTION_METHOD==FIRST_ORDER) then
+            do j=IYMIN,IYMAX
+                do i=IXMIN,IXMAX
+                    ctr(i,j)%sh = 0.0
+                    ctr(i,j)%sb = 0.0
+                end do
+            end do
             return
         end if
 
