@@ -360,6 +360,66 @@ module Flux
 
 contains
     !--------------------------------------------------
+    !>Calculate conVars at interface
+    !>@param[in]    leftCell  :cell left to the target interface
+    !>@param[inout] face      :the target interface
+    !>@param[in]    rightCell :cell right to the target interface
+    !>@param[in]    idx       :index indicating i or j direction
+    !--------------------------------------------------
+    subroutine CalcFaceConvars(leftCell,face,rightCell,idx)
+        type(CellCenter), intent(in)                    :: leftCell,rightCell
+        type(CellInterface), intent(inout)              :: face
+        integer(KINT), intent(in)                       :: idx
+        real(KREAL), allocatable, dimension(:,:)        :: vn,vt !normal and tangential micro velocity
+        real(KREAL), allocatable, dimension(:,:)        :: h,b !Distribution function at the interface
+        integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
+
+        !--------------------------------------------------
+        !Prepare
+        !--------------------------------------------------
+        !Allocate array
+        allocate(vn(uNum,vNum))
+        allocate(vt(uNum,vNum))
+        allocate(delta(uNum,vNum))
+        allocate(h(uNum,vNum))
+        allocate(b(uNum,vNum))
+
+        !Convert the velocity space to local frame
+        vn = uSpace*face%cosx+vSpace*face%cosy
+        vt =-uSpace*face%cosy+vSpace*face%cosx
+
+        !Heaviside step function
+        delta = (sign(UP,vn)+1)/2
+
+        !--------------------------------------------------
+        !Reconstruct initial distribution at interface
+        !--------------------------------------------------
+        h = (leftCell%h+0.5*leftCell%length(idx)*leftCell%sh(:,:,idx))*delta+&
+            (rightCell%h-0.5*rightCell%length(idx)*rightCell%sh(:,:,idx))*(1-delta)
+        b = (leftCell%b+0.5*leftCell%length(idx)*leftCell%sb(:,:,idx))*delta+&
+            (rightCell%b-0.5*rightCell%length(idx)*rightCell%sb(:,:,idx))*(1-delta)
+
+        !--------------------------------------------------
+        !Obtain macroscopic variables
+        !--------------------------------------------------
+        !Conservative variables conVars at interface
+        face%conVars(1) = sum(weight*h)
+        face%conVars(2) = sum(weight*vn*h)
+        face%conVars(3) = sum(weight*vt*h)
+        face%conVars(4) = 0.5*(sum(weight*(vn**2+vt**2)*h)+sum(weight*b))
+
+        !--------------------------------------------------
+        !Aftermath
+        !--------------------------------------------------
+        !Deallocate array
+        deallocate(vn)
+        deallocate(vt)
+        deallocate(delta)
+        deallocate(h)
+        deallocate(b)
+    end subroutine CalcFaceConvars
+
+    !--------------------------------------------------
     !>Calculate flux of inner interface
     !>@param[in]    leftCell  :cell left to the target interface
     !>@param[inout] face      :the target interface
@@ -519,7 +579,6 @@ contains
         face%flux_h = face%length*face%flux_h
         face%flux_b = face%length*face%flux_b
 
-        
         !--------------------------------------------------
         !Aftermath
         !--------------------------------------------------
@@ -909,9 +968,35 @@ contains
         integer(KINT)                                   :: i,j
         
         !--------------------------------------------------
+        !Calculate interface conVars for b_slope calculation
+        !--------------------------------------------------
+
+        !$omp parallel
+        !Inner part
+        !$omp do
+        do j=IYMIN,IYMAX
+            do i=IXMIN+1,IXMAX
+                call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
+            end do
+        end do
+        !$omp end do nowait
+
+        !Inner part
+        !$omp do
+        do j=IYMIN+1,IYMAX
+            do i=IXMIN,IXMAX
+                call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
+            end do
+        end do
+        !$omp end do nowait
+        
+        !--------------------------------------------------
+        !Calculate interface flux
+        !--------------------------------------------------
+
+        !--------------------------------------------------
         !i direction
         !--------------------------------------------------
-        
         !Boundary part
         !$omp do
         do j=IYMIN,IYMAX
@@ -932,7 +1017,6 @@ contains
         !--------------------------------------------------
         !j direction
         !--------------------------------------------------
-
         !Boundary part
         !$omp do
         do i=IXMIN,IXMAX
