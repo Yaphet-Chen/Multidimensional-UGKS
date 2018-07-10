@@ -356,7 +356,7 @@ module Flux
     use Tools
     implicit none
     integer(KREAL), parameter                           :: MNUM = 6 !Number of normal velocity moments
-    integer(KREAL), parameter                           :: MTUM = 4 !Number of tangential velocity moments
+    integer(KREAL), parameter                           :: MTUM = 5 !Number of tangential velocity moments
 
 contains
     !--------------------------------------------------
@@ -436,13 +436,16 @@ contains
         real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function
         real(KREAL), allocatable, dimension(:,:)        :: H_plus,B_plus !Shakhov part of the equilibrium distribution
         real(KREAL), allocatable, dimension(:,:)        :: sh,sb !Slope of distribution function at the interface
+        real(KREAL), allocatable, dimension(:,:)        :: sh_t,sb_t !Tangential slope of distribution function at the interface
         integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
-        real(KREAL)                                     :: conVars(4),prim(4) !Conservative and primary variables at the interface
+        real(KREAL)                                     :: prim(4) !Primary variables at the interface
         real(KREAL)                                     :: qf(2) !Heat flux in normal and tangential direction
         real(KREAL)                                     :: sw(4) !Slope of conVars
         real(KREAL)                                     :: aL(4),aR(4),aT(4) !Micro slope of Maxwellian distribution, left,right and time.
+        real(KREAL)                                     :: b_slope(4) !Micro slope at tangential direction
         real(KREAL)                                     :: Mu(0:MNUM),MuL(0:MNUM),MuR(0:MNUM),Mv(0:MTUM),Mxi(0:2) !<u^n>,<u^n>_{>0},<u^n>_{<0},<v^m>,<\xi^l>
         real(KREAL)                                     :: Mau0(4),MauL(4),MauR(4),MauT(4) !<u\psi>,<aL*u^n*\psi>,<aR*u^n*\psi>,<A*u*\psi>
+        real(KREAL)                                     :: Mbu(4) !<b*u*v*\psi>
         real(KREAL)                                     :: tau !Collision time
         real(KREAL)                                     :: Mt(5) !Some time integration terms
         integer(KINT)                                   :: i,j
@@ -458,6 +461,8 @@ contains
         allocate(b(uNum,vNum))
         allocate(sh(uNum,vNum))
         allocate(sb(uNum,vNum))
+        allocate(sh_t(uNum,vNum))
+        allocate(sb_t(uNum,vNum))
         allocate(H0(uNum,vNum))
         allocate(B0(uNum,vNum))
         allocate(H_plus(uNum,vNum))
@@ -480,26 +485,31 @@ contains
         sh = leftCell%sh(:,:,idx)*delta+rightCell%sh(:,:,idx)*(1-delta)
         sb = leftCell%sb(:,:,idx)*delta+rightCell%sb(:,:,idx)*(1-delta)
 
+        !Tangential part
+        if (idx==1) then 
+            sh_t = leftCell%sh(:,:,2)*delta+rightCell%sh(:,:,2)*(1-delta)
+            sb_t = leftCell%sb(:,:,2)*delta+rightCell%sb(:,:,2)*(1-delta)
+        else
+            sh_t = leftCell%sh(:,:,1)*delta+rightCell%sh(:,:,1)*(1-delta)
+            sb_t = leftCell%sb(:,:,1)*delta+rightCell%sb(:,:,1)*(1-delta)
+        end if
         !--------------------------------------------------
         !Obtain macroscopic variables
         !--------------------------------------------------
-        !Conservative variables conVars at interface
-        conVars(1) = sum(weight*h)
-        conVars(2) = sum(weight*vn*h)
-        conVars(3) = sum(weight*vt*h)
-        conVars(4) = 0.5*(sum(weight*(vn**2+vt**2)*h)+sum(weight*b))
-
-        !Convert to primary variables
-        prim = GetPrimary(conVars)
+        !Obtain primary variables at interface
+        prim = GetPrimary(face%conVars)
 
         !--------------------------------------------------
         !Calculate a^L,a^R
         !--------------------------------------------------
-        sw = (conVars-LocalFrame(leftCell%conVars,face%cosx,face%cosy))/(0.5*leftCell%length(idx)) !left slope of conVars
+        sw = (face%conVars-LocalFrame(leftCell%conVars,face%cosx,face%cosy))/(0.5*leftCell%length(idx)) !left slope of face%conVars
         aL = MicroSlope(prim,sw) !Calculate a^L
 
-        sw = (LocalFrame(rightCell%conVars,face%cosx,face%cosy)-conVars)/(0.5*rightCell%length(idx)) !right slope of conVars
+        sw = (LocalFrame(rightCell%conVars,face%cosx,face%cosy)-face%conVars)/(0.5*rightCell%length(idx)) !right slope of face%conVars
         aR = MicroSlope(prim,sw) !Calculate a^R
+
+        sw = (face_U%conVars-face_D%conVars)/(0.5*face_U%length+idb*face%length+0.5*face_D%length) !right slope of face%conVars
+        b_slope = MicroSlope(prim,sw) !Calculate b_slope
 
         !--------------------------------------------------
         !Calculate time slope of conVars and A
@@ -569,6 +579,22 @@ contains
                         Mt(2)*vn**2*(aR(1)*B0+aR(2)*vn*B0+aR(3)*vt*B0+0.5*aR(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))*(1-delta)+&
                         Mt(3)*vn*(aT(1)*B0+aT(2)*vn*B0+aT(3)*vt*B0+0.5*aT(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
                         Mt(4)*vn*b-Mt(5)*vn**2*sb
+
+        !--------------------------------------------------
+        !Multidimension part
+        !--------------------------------------------------
+        !Calculate the b_slope flux related to g0
+        Mbu = Moment_auvxi(b_slope,Mu,Mv,Mxi,1,1) !<b*u*v*\psi>
+        face%flux = face%flux+Mt(2)*prim(1)*Mbu
+
+        face%flux(1) = face%flux(1)-Mt(5)*sum(weight*vn*vt*sh_t)
+        face%flux(2) = face%flux(2)-Mt(5)*sum(weight*vn**2*vt*sh_t)
+        face%flux(3) = face%flux(3)-Mt(5)*sum(weight*vn*vt**2*sh_t)
+        face%flux(4) = face%flux(4)-Mt(5)*0.5*(sum(weight*vn*vt*(vn**2+vt**2)*sh_t)+sum(weight*vn*vt*sb_t))
+
+        face%flux_h = face%flux_h+Mt(2)*vn*vt*(b_slope(1)*H0+b_slope(2)*vn*H0+b_slope(3)*vt*H0+0.5*b_slope(4)*((vn**2+vt**2)*H0+B0))-Mt(5)*vn*vt*sh_t
+
+        face%flux_b = face%flux_b+Mt(2)*vn*vt*(b_slope(1)*B0+b_slope(2)*vn*B0+b_slope(3)*vt*B0+0.5*b_slope(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))-Mt(5)*vn*vt*sb_t
         
         !--------------------------------------------------
         !Final flux
@@ -591,6 +617,8 @@ contains
         deallocate(b)
         deallocate(sh)
         deallocate(sb)
+        deallocate(sh_t)
+        deallocate(sb_t)
         deallocate(H0)
         deallocate(B0)
         deallocate(H_plus)
