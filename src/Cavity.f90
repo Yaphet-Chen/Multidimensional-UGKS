@@ -426,10 +426,11 @@ contains
     !>@param[in]    rightCell :cell right to the target interface
     !>@param[in]    idx       :index indicating i or j direction
     !--------------------------------------------------
-    subroutine CalcFlux(leftCell,face,rightCell,idx)
+    subroutine CalcFlux(leftCell,face,rightCell,idx,face_U,face_D,idb)
         type(CellCenter), intent(in)                    :: leftCell,rightCell
         type(CellInterface), intent(inout)              :: face
-        integer(KINT), intent(in)                       :: idx
+        type(CellInterface), intent(in)                 :: face_U,face_D !Upper and Lower interface
+        integer(KINT), intent(in)                       :: idx,idb !indicator for direction and boundary
         real(KREAL), allocatable, dimension(:,:)        :: vn,vt !normal and tangential micro velocity
         real(KREAL), allocatable, dimension(:,:)        :: h,b !Distribution function at the interface
         real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function
@@ -1007,10 +1008,20 @@ contains
 
         !Inner part
         !$omp do
-        do j=IYMIN,IYMAX
+        do j=IYMIN+1,IYMAX-1
             do i=IXMIN+1,IXMAX
-                call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
+                call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC,vface(i,j+1),vface(i,j-1),1) !idb=1, not boundary, full central differcence for b_slope
             end do
+        end do
+        !$omp end do nowait
+        !$omp do
+        do i=IXMIN+1,IXMAX
+            call CalcFlux(ctr(i-1,IYMIN),vface(i,IYMIN),ctr(i,IYMIN),IDIRC,vface(i,IYMIN+1),vface(i,IYMIN),0) !idb=0, boundary, half central difference for b_slope
+        end do
+        !$omp end do nowait
+        !$omp do
+        do i=IXMIN+1,IXMAX
+            call CalcFlux(ctr(i-1,IYMAX),vface(i,IYMAX),ctr(i,IYMAX),IDIRC,vface(i,IYMAX),vface(i,IYMAX-1),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
 
@@ -1028,9 +1039,19 @@ contains
         !Inner part
         !$omp do
         do j=IYMIN+1,IYMAX
-            do i=IXMIN,IXMAX
-                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
+            do i=IXMIN+1,IXMAX-1
+                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC,hface(i+1,j),hface(i-1,j),1) !idb=1, not boundary, full central differcence for b_slope
             end do
+        end do
+        !$omp end do nowait
+        !$omp do
+        do j=IYMIN+1,IYMAX
+                call CalcFlux(ctr(IXMIN,j-1),hface(IXMIN,j),ctr(IXMIN,j),JDIRC,hface(IXMIN+1,j),hface(IXMIN,j),0) !idb=0, boundary, half central difference for b_slope
+        end do
+        !$omp end do nowait
+        !$omp do
+        do j=IYMIN+1,IYMAX
+                call CalcFlux(ctr(IXMAX,j-1),hface(IXMAX,j),ctr(IXMAX,j),JDIRC,hface(IXMAX,j),hface(IXMAX-1,j),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp end parallel
