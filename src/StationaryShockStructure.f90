@@ -81,7 +81,7 @@ module ControlParameters
     real(KREAL), parameter                              :: GAMMA = real(CK+3,KREAL)/real(CK+1,KREAL) !Ratio of specific heat
     real(KREAL), parameter                              :: OMEGA = 0.72 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
-    real(KREAL), parameter                              :: KN = 1.0 !Knudsen number in reference state
+    real(KREAL), parameter                              :: KN = 0.00001 !Knudsen number in reference state
     real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in HS model
     real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in HS model
     real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
@@ -329,7 +329,7 @@ contains
         !--------------------------------------------------
         !Calculate collision time and some time integration terms
         !--------------------------------------------------
-        tau = GetTau(prim)
+        tau = GetTau(GetPrimary(leftCell%conVars),prim,GetPrimary(rightCell%conVars))
 
         Mt(4) = tau*(1.0-exp(-dt/tau))
         Mt(5) = -tau*dt*exp(-dt/tau)+tau*Mt(4)
@@ -417,11 +417,12 @@ contains
     !>@param[in] prim    :primary variables
     !>@return    GetTau  :collision time
     !--------------------------------------------------
-    function GetTau(prim)
-        real(KREAL), intent(in)                         :: prim(3)
+    function GetTau(prim_L,prim,prim_R)
+        real(KREAL), intent(in)                         :: prim(3),prim_L(3),prim_R(3)
         real(KREAL)                                     :: GetTau
 
-        GetTau = MU_REF*2.0*prim(3)**(1-OMEGA)/prim(1)
+        ! GetTau = MU_REF*2.0*prim(3)**(1-OMEGA)/prim(1)
+        GetTau = MU_REF*2.0*prim(3)**(1-OMEGA)/prim(1)+dt*abs(prim_L(1)/prim_L(3)-prim_R(1)/prim_R(3))/abs(prim_L(1)/prim_L(3)+prim_R(1)/prim_R(3)+SMV) !Add numerical dissipation
     end function GetTau
     
     !--------------------------------------------------
@@ -625,7 +626,7 @@ contains
             !--------------------------------------------------
             prim_old = GetPrimary(ctr(i)%conVars) !Convert to primary variables
             call DiscreteMaxwell(H_old,B_old,prim_old) !Calculate Maxwellian
-            tau_old = GetTau(prim_old) !Calculate collision time \tau^n
+            tau_old = GetTau(GetPrimary(ctr(i-1)%conVars),prim_old,GetPrimary(ctr(i+1)%conVars)) !Calculate collision time \tau^n
 
             !--------------------------------------------------
             !Update conVars^{n+1} and Calculate H^{n+1},B^{n+1},\tau^{n+1}
@@ -634,7 +635,7 @@ contains
 
             prim = GetPrimary(ctr(i)%conVars)
             call DiscreteMaxwell(H,B,prim)
-            tau = GetTau(prim)
+            tau = GetTau(GetPrimary(ctr(i-1)%conVars),prim,GetPrimary(ctr(i+1)%conVars))
 
             !--------------------------------------------------
             !Shakhov part
@@ -684,8 +685,8 @@ contains
     !>Main initialization subroutine
     !--------------------------------------------------
     subroutine Init()  
-        ! call InitUniformMesh() !Initialize Uniform mesh
-        call InitRandomMesh()
+        call InitUniformMesh() !Initialize Uniform mesh
+        ! call InitRandomMesh()
         call InitVelocityNewton(uNum) !Initialize discrete velocity space
         call InitFlowField(PRIM_LEFT,PRIM_RIGHT) !Set the initial value
     end subroutine Init
