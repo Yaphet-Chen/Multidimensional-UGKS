@@ -81,7 +81,7 @@ module ControlParameters
     real(KREAL), parameter                              :: GAMMA = real(CK+3,KREAL)/real(CK+1,KREAL) !Ratio of specific heat
     real(KREAL), parameter                              :: OMEGA = 0.72 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
-    real(KREAL), parameter                              :: KN = 0.00001 !Knudsen number in reference state
+    real(KREAL), parameter                              :: KN = 1.0 !Knudsen number in reference state
     real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in HS model
     real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in HS model
     real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
@@ -190,6 +190,33 @@ contains
         b = h*CK/(2.0*prim(3))
     end subroutine DiscreteMaxwell
 
+    !--------------------------------------------------
+    !>Calculate heat flux
+    !>@param[in] h,b           :distribution function
+    !>@param[in] prim          :primary variables
+    !>@return    GetHeatFlux   :heat flux in normal and tangential direction
+    !--------------------------------------------------
+    function GetHeatFlux(h,b,prim)
+        real(KREAL), dimension(:), intent(in)           :: h,b
+        real(KREAL), intent(in)                         :: prim(3)
+        real(KREAL)                                     :: GetHeatFlux !heat flux in normal and tangential direction
+
+        GetHeatFlux = 0.5*(sum(weight*(uSpace-prim(2))*(uSpace-prim(2))**2*h)+sum(weight*(uSpace-prim(2))*b))
+    end function GetHeatFlux
+    !--------------------------------------------------
+    !>Calculate stress tensor
+    !>@param[in] h                  :distribution function
+    !>@param[in] prim               :primary variables
+    !>@return    GetShearStress     :shear stress in normal direction tau_xx
+    !--------------------------------------------------
+    function GetShearStress(h,prim)
+        real(KREAL), dimension(:), intent(in)           :: h
+        real(KREAL), intent(in)                         :: prim(3)
+        real(KREAL)                                     :: GetShearStress !stress in normal direction
+        
+        GetShearStress = sum(weight*(uSpace-prim(2))*(uSpace-prim(2))*h)-0.5*prim(1)/prim(3)
+
+    end function GetShearStress
     !--------------------------------------------------
     !>Calculate the Shakhov part H^+, B^+
     !>@param[in]  H,B           :Maxwellian distribution function
@@ -424,20 +451,6 @@ contains
         ! GetTau = MU_REF*2.0*prim(3)**(1-OMEGA)/prim(1)
         GetTau = MU_REF*2.0*prim(3)**(1-OMEGA)/prim(1)+dt*abs(prim_L(1)/prim_L(3)-prim_R(1)/prim_R(3))/abs(prim_L(1)/prim_L(3)+prim_R(1)/prim_R(3)+SMV) !Add numerical dissipation
     end function GetTau
-    
-    !--------------------------------------------------
-    !>Calculate heat flux
-    !>@param[in] h,b           :distribution function
-    !>@param[in] prim          :primary variables
-    !>@return    GetHeatFlux   :heat flux in normal and tangential direction
-    !--------------------------------------------------
-    function GetHeatFlux(h,b,prim)
-        real(KREAL), dimension(:), intent(in)           :: h,b
-        real(KREAL), intent(in)                         :: prim(3)
-        real(KREAL)                                     :: GetHeatFlux !heat flux in normal and tangential direction
-
-        GetHeatFlux = 0.5*(sum(weight*(uSpace-prim(2))*(uSpace-prim(2))**2*h)+sum(weight*(uSpace-prim(2))*b)) 
-    end function GetHeatFlux
 
     !--------------------------------------------------
     !>calculate moments of velocity and \xi
@@ -855,15 +868,19 @@ contains
         integer(KINT)                                   :: i
         real(KREAL)                                     :: rmid !Average density
         real(KREAL)                                     :: xmid !Location of average density
+        real(KREAL)                                     :: prim(3)
         real(KREAL), dimension(:,:), allocatable        :: solution
         !--------------------------------------------------
         !Prepare solutions
         !--------------------------------------------------
-        allocate(solution(3,IXMIN-GHOST_NUM:IXMAX+GHOST_NUM)) !including ghost cell
+        allocate(solution(5,IXMIN-GHOST_NUM:IXMAX+GHOST_NUM)) !including ghost cell
 
         do i=IXMIN-GHOST_NUM,IXMAX+GHOST_NUM
-            solution(:,i) = GetPrimary(ctr(i)%conVars)
-            solution(3,i) = 1.0/solution(3,i) !Temperature=1/Lambda
+            prim = GetPrimary(ctr(i)%conVars)
+            solution(1:2,i) = prim(1:2) !Density,u
+            solution(3,i) = 1.0/prim(3) !Temperature=1/Lambda
+            solution(4,i) = GetShearStress(ctr(i)%h,prim) !Stress tau_xx
+            solution(5,i) = GetHeatFlux(ctr(i)%h,ctr(i)%b,prim) !Heat flux q_x
         end do
         
         !Find middle location - the location of average density
@@ -886,15 +903,14 @@ contains
         !Open result file and write header
         ! using keyword arguments
         open(unit=RSTFILE,file=RSTFILENAME//trim(fileName)//'.dat',status="replace",action="write")
-        ! write(RSTFILE,*) "VARIABLES = x, Density, U, Temperature"
-        write(RSTFILE,*) "VARIABLES = x, Density, U, Temperature"
+        write(RSTFILE,*) "VARIABLES = x, Density, U, Temperature, stress, Qx "
         write(RSTFILE,*) 'ZONE  T="Time: ',simTime,'", I = ',IXMAX-IXMIN+1,', DATAPACKING=BLOCK'
 
         !Write geometry (cell-centered)
         write(RSTFILE,"(6(ES23.16,2X))") ctr(IXMIN:IXMAX)%x-xmid
 
         !Write solution (cell-centered)
-        do i=1,3
+        do i=1,5
             write(RSTFILE,"(6(ES23.16,2X))") solution(i,IXMIN:IXMAX)
         end do
 
