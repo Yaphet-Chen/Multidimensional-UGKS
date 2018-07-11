@@ -29,6 +29,10 @@ module ConstantVariables
     integer(KINT), parameter                            :: NONUNIFORM = 1 !Non-uniform mesh
     integer(KINT), parameter                            :: RAND = 2 !Random mesh
 
+    !Output
+    integer(KINT), parameter                            :: CENTER = 0 !Output solution as cell centered value
+    integer(KINT), parameter                            :: POINTS = 1 !Output solution as point value
+
     !Quadrature method
     integer(KINT), parameter                            :: NEWTON = 0 !Newton–Cotes
     integer(KINT), parameter                            :: GAUSS = 1 !Gauss-Hermite
@@ -76,6 +80,11 @@ module Mesh
         real(KREAL), allocatable, dimension(:,:)        :: flux_h,flux_b !Flux of distribution function
     end type CellInterface
 
+    !Grid geometry (node coordinates)
+    type Grid
+        real(KREAL)                                     :: x,y !Coordinates
+    end type Grid
+
     !index method
     !---------------------------------
     !           (i,j+1)              |
@@ -103,10 +112,11 @@ module ControlParameters
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
+    integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     real(KREAL), parameter                              :: CFL = 0.9 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
-    real(KREAL), parameter                              :: EPS = 1.0E-6 !Convergence criteria
+    real(KREAL), parameter                              :: EPS = 1.0E-3 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
     real(KREAL)                                         :: dt !Global time step
@@ -167,6 +177,7 @@ module ControlParameters
     !---------------------------------
     type(CellCenter)                                    :: ctr(IXMIN:IXMAX,IYMIN:IYMAX) !Cell center
     type(CellInterface)                                 :: vface(IXMIN:IXMAX+1,IYMIN:IYMAX),hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Vertical and horizontal interfaces
+    type(Grid)                                          :: geometry(IXMIN:IXMAX+1,IYMIN:IYMAX+1)
 
     !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
     real(KREAL), parameter, dimension(4)                :: INIT_GAS = [1.0, 0.0, 0.0, 1.0]
@@ -1236,6 +1247,12 @@ contains
         dx = (X_END-X_START)/(IXMAX-IXMIN+1)
         dy = (Y_END-Y_START)/(IYMAX-IYMIN+1)
 
+        !Geometry (node coordinate)
+        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX+1)
+                geometry(i,j)%x = X_START+(i-1)*dx
+                geometry(i,j)%y = Y_START+(j-1)*dy
+        end forall
+
         !Cell center
         forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX)
             ctr(i,j)%x = X_START+(i-IXMIN+0.5)*dx
@@ -1273,6 +1290,24 @@ contains
         !Cell length
         dx = dx/sum(dx)*(X_END-X_START)
         dy = dy/sum(dy)*(Y_END-Y_START)
+
+        !Geometry (node coordinate)
+        geometry(IXMIN,IYMIN)%x = X_START
+        geometry(IXMIN,IYMIN)%y = Y_START
+        do i=IXMIN+1,IXMAX+1
+            geometry(i,IYMIN)%x = geometry(i-1,IYMIN)%x+dx(i-1)
+            geometry(i,IYMIN)%y = Y_START
+        end do
+        do j=IYMIN+1,IYMAX+1
+            geometry(IXMIN,j)%x = X_START
+            geometry(IXMIN,j)%y = geometry(IXMIN,j-1)%y+dy(j-1)
+        end do
+        do j=IYMIN+1,IYMAX+1
+            do i=IXMIN+1,IXMAX+1
+                geometry(i,j)%x = geometry(i-1,j)%x+dx(i-1)
+                geometry(i,j)%y = geometry(i,j-1)%y+dy(j-1)
+            end do
+        end do
 
         !Cell center
         ctr(IXMIN,IYMIN)%x = X_START+0.5*dx(IXMIN)
@@ -1340,6 +1375,12 @@ contains
         do j=IYMIN,IYMAX
             dy(j) = y(j+1)-y(j)
         end do
+
+        !Geometry (node coordinate)
+        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX+1)
+                geometry(i,j)%x = x(i)
+                geometry(i,j)%y = y(j)
+        end forall 
 
         !Cell center
         ctr(IXMIN,IYMIN)%x = X_START+0.5*dx(IXMIN)
@@ -1625,13 +1666,27 @@ contains
         !Open result file and write header
         !Using keyword arguments
         write(str , *) iter
-        open(unit=RSTFILE,file=RSTFILENAME//trim(fileName)//'_'//trim(adjustl(str))//'.dat',status="replace",action="write")
-        write(RSTFILE,*) "VARIABLES = X, Y, Density, U, V, T, P, QX, QY"
-        write(RSTFILE,*) "ZONE I = ",IXMAX-IXMIN+1,", J = ",IYMAX-IYMIN+1,", DATAPACKING=BLOCK"
 
-        !Write geometry (cell-centered)
-        write(RSTFILE,"(6(ES23.16,2X))") ctr%x
-        write(RSTFILE,"(6(ES23.16,2X))") ctr%y
+        !Open result file
+        open(unit=RSTFILE,file=RSTFILENAME//trim(fileName)//'_'//trim(adjustl(str))//'.dat',status="replace",action="write")
+        
+        !Write header
+        write(RSTFILE,*) "VARIABLES = X, Y, Density, U, V, T, P, QX, QY"
+
+        select case(OUTPUT_METHOD)
+            case(CENTER)
+                write(RSTFILE,*) "ZONE  I = ",IXMAX-IXMIN+2,", J = ",IYMAX-IYMIN+2,"DATAPACKING=BLOCK, VARLOCATION=([3-9]=CELLCENTERED)"
+
+                !write geometry (node value)
+                write(RSTFILE,"(6(ES23.16,2X))") geometry%x
+                write(RSTFILE,"(6(ES23.16,2X))") geometry%y
+            case(POINTS)
+                write(RSTFILE,*) "ZONE  I = ",IXMAX-IXMIN+1,", J = ",IYMAX-IYMIN+1,"DATAPACKING=BLOCK"
+
+                !write geometry (cell centered value)
+                write(RSTFILE,"(6(ES23.16,2X))") ctr%x
+                write(RSTFILE,"(6(ES23.16,2X))") ctr%y
+        end select
 
         !Write solution (cell-centered)
         do i=1,7
@@ -1675,7 +1730,7 @@ program Cavity
 
         !Check stopping criterion
         ! if (simTime>=MAX_TIME .or. iter>=MAX_ITER) exit
-        if(all(res<EPS) .or. iter>=MAX_ITER) exit
+        if(all(res<EPS*dt) .or. iter>=MAX_ITER) exit
         ! if(isnan(res(1)) .or. isnan(res(4))) exit
 
         !Log the iteration situation every 10 iterations
