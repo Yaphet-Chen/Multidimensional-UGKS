@@ -111,7 +111,7 @@ module ControlParameters
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
-    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = NEWTON
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     real(KREAL), parameter                              :: CFL = 0.9 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
@@ -135,18 +135,18 @@ module ControlParameters
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
 
     ! MU_REF determined by Kn number
-    ! real(KREAL), parameter                              :: KN = 0.075 !Knudsen number in reference state
-    ! real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
-    ! real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
-    ! real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
+    real(KREAL), parameter                              :: KN = 0.075 !Knudsen number in reference state
+    real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
+    real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
+    real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
 
     ! MU_REF determined by Re number
-    real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
-    real(KREAL), parameter                              :: MU_REF = 0.15/Re !Viscosity coefficient in reference state
+    ! real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
+    ! real(KREAL), parameter                              :: MU_REF = 0.15/Re !Viscosity coefficient in reference state
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 61, Y_NUM = 61 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 23, Y_NUM = 23 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -377,7 +377,7 @@ module Flux
 
 contains
     !--------------------------------------------------
-    !>Calculate conVars at interface
+    !>Calculate conVars at cell interface in local frame
     !>@param[in]    leftCell  :cell left to the target interface
     !>@param[inout] face      :the target interface
     !>@param[in]    rightCell :cell right to the target interface
@@ -503,7 +503,7 @@ contains
         sb = leftCell%sb(:,:,idx)*delta+rightCell%sb(:,:,idx)*(1-delta)
 
         !Tangential part
-        if (idx==1) then 
+        if (idx==1) then
             sh_t = leftCell%sh(:,:,2)*delta+rightCell%sh(:,:,2)*(1-delta)
             sb_t = leftCell%sb(:,:,2)*delta+rightCell%sb(:,:,2)*(1-delta)
         else
@@ -514,7 +514,7 @@ contains
         !Obtain macroscopic variables
         !--------------------------------------------------
         !Obtain primary variables at interface
-        prim = GetPrimary(face%conVars)
+        prim = GetPrimary(face%conVars) !face%conVars is in local frame already
 
         !--------------------------------------------------
         !Calculate a^L,a^R
@@ -1180,7 +1180,7 @@ contains
         end do
 
         !Calculate final residual
-        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)
+        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)/dt
         
         !Deallocate arrays
         deallocate(H_old)
@@ -1730,7 +1730,7 @@ program Cavity
 
         !Check stopping criterion
         ! if (simTime>=MAX_TIME .or. iter>=MAX_ITER) exit
-        if(all(res<EPS*dt) .or. iter>=MAX_ITER) exit
+        if(all(res<EPS) .or. iter>=MAX_ITER) exit
         ! if(isnan(res(1)) .or. isnan(res(4))) exit
 
         !Log the iteration situation every 10 iterations
@@ -1740,7 +1740,7 @@ program Cavity
             write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
         end if
 
-        if (mod(iter,10000)==0) then
+        if (mod(iter,500)==0) then
             call Output()
         end if
 
