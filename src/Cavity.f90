@@ -1016,9 +1016,8 @@ contains
         !--------------------------------------------------
         !Calculate interface conVars for b_slope calculation
         !--------------------------------------------------
-
-        !$omp parallel
         !Inner part
+        !$omp parallel
         !$omp do
         do j=IYMIN,IYMAX
             do i=IXMIN+1,IXMAX
@@ -1035,7 +1034,8 @@ contains
             end do
         end do
         !$omp end do nowait
-        
+        !$omp end parallel
+
         !--------------------------------------------------
         !Calculate interface flux
         !--------------------------------------------------
@@ -1044,6 +1044,7 @@ contains
         !i direction
         !--------------------------------------------------
         !Boundary part
+        !$omp parallel
         !$omp do
         do j=IYMIN,IYMAX
             call CalcFluxBoundary(BC_W,vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN) !RN means no frame rotation
