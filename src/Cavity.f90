@@ -1167,8 +1167,8 @@ contains
                 !--------------------------------------------------
                 !Record residual
                 !--------------------------------------------------
-                sumRes = sumRes+(conVars_old-ctr(i,j)%conVars)**2
-                sumAvg = sumAvg+abs(ctr(i,j)%conVars)
+                sumRes = sumRes+((conVars_old-ctr(i,j)%conVars)*ctr(i,j)%area)**2
+                sumAvg = sumAvg+abs(ctr(i,j)%conVars)*ctr(i,j)%area
             
                 !--------------------------------------------------
                 !Shakhov part
