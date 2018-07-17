@@ -110,7 +110,7 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
-    integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
+    integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     real(KREAL), parameter                              :: CFL = 0.9 !CFL number
@@ -146,14 +146,14 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 23, Y_NUM = 23 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 61, Y_NUM = 61 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
     !--------------------------------------------------
     !Discrete velocity space
     !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 72, vNum = 72 !Number of points in velocity space for u and v
+    integer(KINT)                                       :: uNum = 32, vNum = 32 !Number of points in velocity space for u and v
     real(KREAL)                                         :: U_MIN = -3.0, U_MAX = +3.0, V_MIN = -3.0, V_MAX = +3.0 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
     real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
@@ -1741,7 +1741,7 @@ program Cavity
             write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
         end if
 
-        if (mod(iter,500)==0) then
+        if (mod(iter,2000)==0) then
             call Output()
         end if
 
