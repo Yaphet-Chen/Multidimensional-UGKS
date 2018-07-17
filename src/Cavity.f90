@@ -37,6 +37,10 @@ module ConstantVariables
     integer(KINT), parameter                            :: NEWTON = 0 !Newton–Cotes
     integer(KINT), parameter                            :: GAUSS = 1 !Gauss-Hermite
 
+    !Time step method
+    integer(KINT), parameter                            :: GLOBAL = 0 !Global time step
+    integer(KINT), parameter                            :: LOCAL = 1 !Local time step
+
     !Direction
     integer(KINT), parameter                            :: IDIRC = 1 !I direction
     integer(KINT), parameter                            :: JDIRC = 2 !J direction
@@ -110,13 +114,14 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
-    integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
+    integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
+    integer(KINT), parameter                            :: TIME_METHOD = LOCAL
     real(KREAL), parameter                              :: CFL = 0.9 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
-    real(KREAL), parameter                              :: EPS = 1.0E-3 !Convergence criteria
+    real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
     real(KREAL)                                         :: dt !Global time step
@@ -129,7 +134,7 @@ module ControlParameters
     integer(KINT), parameter                            :: RSTFILE = 21 !Result file ID
 
     !Gas propeties
-    integer(KINT), parameter                            :: CK = 1 !Internal degree of freedom, here 1 denotes monatomic gas
+    integer(KINT), parameter                            :: CK = 0 !Internal degree of freedom, here 1 denotes monatomic gas
     real(KREAL), parameter                              :: GAMMA = real(CK+4,KREAL)/real(CK+2,KREAL) !Ratio of specific heat
     real(KREAL), parameter                              :: OMEGA = 0.81 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
@@ -146,7 +151,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 61, Y_NUM = 61 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 121, Y_NUM = 121 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -178,6 +183,7 @@ module ControlParameters
     type(CellCenter)                                    :: ctr(IXMIN:IXMAX,IYMIN:IYMAX) !Cell center
     type(CellInterface)                                 :: vface(IXMIN:IXMAX+1,IYMIN:IYMAX),hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Vertical and horizontal interfaces
     type(Grid)                                          :: geometry(IXMIN:IXMAX+1,IYMIN:IYMAX+1)
+    real(KREAL)                                         :: dt_local(IXMIN:IXMAX,IYMIN:IYMAX) !Local time step
 
     !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
     real(KREAL), parameter, dimension(4)                :: INIT_GAS = [1.0, 0.0, 0.0, 1.0]
@@ -887,6 +893,10 @@ contains
 
                 !Maximum 1/dt allowed
                 tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
+
+                if (TIME_METHOD==LOCAL) then
+                    dt_local(i,j) = CFL*ctr(i,j)%area/(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3)) !Record local time step
+                end if
             end do
         end do
         !$omp end do
@@ -1142,7 +1152,13 @@ contains
                 !--------------------------------------------------
                 !Update conVars^{n+1} and Calculate H^{n+1},B^{n+1},\tau^{n+1}
                 !--------------------------------------------------
-                ctr(i,j)%conVars = ctr(i,j)%conVars+(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1}
+                if (TIME_METHOD==GLOBAL) then
+                    ctr(i,j)%conVars = ctr(i,j)%conVars+(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with global time step
+                elseif (TIME_METHOD==LOCAL) then
+                    ctr(i,j)%conVars = ctr(i,j)%conVars+dt_local(i,j)/dt*(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with local time step
+                else
+                    stop "Error in TIME_METHOD!"
+                end if
 
                 prim = GetPrimary(ctr(i,j)%conVars)
                 call DiscreteMaxwell(H,B,uSpace,vSpace,prim)
@@ -1173,10 +1189,19 @@ contains
                 !--------------------------------------------------
                 !Update distribution function
                 !--------------------------------------------------
-                ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
-                                    0.5*dt*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt/tau)
-                ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
-                                    0.5*dt*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt/tau)
+                if (TIME_METHOD==GLOBAL) then
+                    ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
+                                        0.5*dt*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt/tau)
+                    ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
+                                        0.5*dt*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt/tau)
+                elseif (TIME_METHOD==LOCAL) then
+                    ctr(i,j)%h = (ctr(i,j)%h+dt_local(i,j)/dt*(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
+                                        0.5*dt_local(i,j)*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
+                    ctr(i,j)%b = (ctr(i,j)%b+dt_local(i,j)/dt*(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
+                                        0.5*dt_local(i,j)*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
+                else
+                    stop "Error in TIME_METHOD!"
+                end if
             end do
         end do
 
@@ -1741,7 +1766,7 @@ program Cavity
             write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
         end if
 
-        if (mod(iter,2000)==0) then
+        if (mod(iter,1000)==0) then
             call Output()
         end if
 
