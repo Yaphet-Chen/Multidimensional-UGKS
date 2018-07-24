@@ -68,6 +68,7 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     integer(KINT), parameter                            :: TAU_DISSIPATION = OFF !Add dissipation in tau
+    integer(KINT), parameter                            :: OUTPUT_DISTRIBUTION = ON !output distribution function
     real(KREAL), parameter                              :: CFL = 0.9 !CFL number
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
@@ -78,22 +79,25 @@ module ControlParameters
     !Output control
     character(len=24), parameter                        :: HSTFILENAME = "StationaryShockStructure" !History file name
     character(len=24), parameter                        :: RSTFILENAME = "StationaryShockStructure" !Result file name
+    character(len=24), parameter                        :: DISFILENAME = "StationaryShockStructure" !Distribution file name
+    
     integer(KINT), parameter                            :: HSTFILE = 20 !History file ID
     integer(KINT), parameter                            :: RSTFILE = 21 !Result file ID
+    integer(KINT), parameter                            :: DISFILE = 22 !Distribution file ID
 
     !Gas propeties
     integer(KINT), parameter                            :: CK = 2 !Internal degree of freedom, here 2 denotes monatomic gas
     real(KREAL), parameter                              :: GAMMA = real(CK+3,KREAL)/real(CK+1,KREAL) !Ratio of specific heat
-    real(KREAL), parameter                              :: OMEGA = 0.5 !Temperature dependence index in HS/VHS/VSS model
+    real(KREAL), parameter                              :: OMEGA = 0.66 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
     real(KREAL), parameter                              :: KN = 1.0 !Knudsen number in reference state
     real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in HS model
     real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in HS model
     real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
-    real(KREAL), parameter                              :: MA = 3.0 !Mach number
+    real(KREAL), parameter                              :: MA = 25.0 !Mach number
     !Geometry
-    real(KREAL), parameter                              :: START_POINT = 0.0, END_POINT = 50.0
-    integer(KINT), parameter                            :: POINTS_NUM = 100
+    real(KREAL), parameter                              :: START_POINT = -25.0, END_POINT = 25.0
+    integer(KINT), parameter                            :: POINTS_NUM = 250
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = POINTS_NUM !Cell index range
     integer(KINT), parameter                            :: GHOST_NUM = 1 !Ghost cell number
 
@@ -127,8 +131,8 @@ module ControlParameters
     !--------------------------------------------------
     !Discrete velocity space
     !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 100 !Number of points in velocity space
-    real(KREAL), parameter                              :: U_MIN = -15.0, U_MAX = +15.0 !Minimum and maximum micro velocity
+    integer(KINT)                                       :: uNum = 200 !Number of points in velocity space
+    real(KREAL), parameter                              :: U_MIN = -50.0, U_MAX = +50.0 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:)              :: uSpace !Discrete velocity space
     real(KREAL), allocatable, dimension(:)              :: weight !Qudrature weight at velocity u_k
 
@@ -870,6 +874,7 @@ module Writer
     character(len=8)                                    :: date
     character(len=10)                                   :: time
     character(len=100)                                  :: fileName
+    character(len=20)                                   :: str
 contains
     !--------------------------------------------------
     !>Write result
@@ -892,15 +897,6 @@ contains
             solution(4,i) = GetShearStress(ctr(i)%h,prim) !Stress tau_xx
             solution(5,i) = GetHeatFlux(ctr(i)%h,ctr(i)%b,prim) !Heat flux q_x
         end do
-        
-        !Find middle location - the location of average density
-        rmid = 0.5*(solution(1,IXMIN-1)+solution(1,IXMAX+1))
-
-        do i=IXMIN,IXMAX
-            if ((solution(1,i)-rmid)*(solution(1,i+1)-rmid)<=0) then
-                xmid = ctr(i)%x+(ctr(i+1)%x-ctr(i)%x)/(solution(1,i+1)-solution(1,i))*(rmid-solution(1,i))
-            end if
-        end do
 
         !Normalization
         solution(1,:) = (solution(1,:)-solution(1,IXMIN-GHOST_NUM))/(solution(1,IXMAX+GHOST_NUM)-solution(1,IXMIN-GHOST_NUM))
@@ -917,17 +913,39 @@ contains
         write(RSTFILE,*) 'ZONE  T="Time: ',simTime,'", I = ',IXMAX-IXMIN+1,', DATAPACKING=BLOCK'
 
         !Write geometry (cell-centered)
-        write(RSTFILE,"(6(ES23.16,2X))") ctr(IXMIN:IXMAX)%x-xmid
+        write(RSTFILE,"(6(ES23.16,2X))") ctr(IXMIN:IXMAX)%x
 
         !Write solution (cell-centered)
         do i=1,5
             write(RSTFILE,"(6(ES23.16,2X))") solution(i,IXMIN:IXMAX)
         end do
 
+        if (OUTPUT_DISTRIBUTION==ON) then
+            do i = IXMIN,IXMAX
+                call OutputDistribution(i,solution(1,i))
+            end do
+        end if
+
         !close file
         close(RSTFILE)
         deallocate(solution)
     end subroutine Output
+        
+    subroutine OutputDistribution(int,rho)
+        integer(KINT), intent(in)                       :: int
+        real(KREAL), intent(in)                         :: rho
+
+        write(str,"(f6.4)") rho
+        open(unit=DISFILE,file=DISFILENAME//'_'//trim(adjustl(str))//'.dat',status="replace",action="write")
+        write(DISFILE,*) "VARIABLES = v, Prob "
+        write(DISFILE,*) 'ZONE I = ',uNum,', DATAPACKING=BLOCK'
+
+        write(DISFILE,"(6(ES23.16,2X))") uSpace/(-MA)
+        write(DISFILE,"(6(ES23.16,2X))") ctr(int)%h
+        close(DISFILE)
+
+    end subroutine OutputDistribution
+
 end module Writer
 
 !--------------------------------------------------
