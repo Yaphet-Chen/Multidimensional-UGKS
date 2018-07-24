@@ -114,11 +114,11 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
-    integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
-    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
+    integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = NEWTON
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = LOCAL
-    real(KREAL), parameter                              :: CFL = 0.9 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
@@ -134,32 +134,32 @@ module ControlParameters
     integer(KINT), parameter                            :: RSTFILE = 21 !Result file ID
 
     !Gas propeties
-    integer(KINT), parameter                            :: CK = 0 !Internal degree of freedom, here 1 denotes monatomic gas
+    integer(KINT), parameter                            :: CK = 1 !Internal degree of freedom, here 1 denotes monatomic gas
     real(KREAL), parameter                              :: GAMMA = real(CK+4,KREAL)/real(CK+2,KREAL) !Ratio of specific heat
     real(KREAL), parameter                              :: OMEGA = 0.81 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
 
     ! MU_REF determined by Kn number
-    ! real(KREAL), parameter                              :: KN = 10 !Knudsen number in reference state
-    ! real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
-    ! real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
-    ! real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
+    real(KREAL), parameter                              :: KN = 10 !Knudsen number in reference state
+    real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
+    real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
+    real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
 
     ! MU_REF determined by Re number
-    real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
-    real(KREAL), parameter                              :: MU_REF = 0.15/Re !Viscosity coefficient in reference state
+    ! real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
+    ! real(KREAL), parameter                              :: MU_REF = 0.15/Re !Viscosity coefficient in reference state
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 121, Y_NUM = 121 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 51, Y_NUM = 51 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
     !--------------------------------------------------
     !Discrete velocity space
     !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 32, vNum = 32 !Number of points in velocity space for u and v
-    real(KREAL)                                         :: U_MIN = -3.0, U_MAX = +3.0, V_MIN = -3.0, V_MAX = +3.0 !Minimum and maximum micro velocity
+    integer(KINT)                                       :: uNum = 72, vNum = 72 !Number of points in velocity space for u and v
+    real(KREAL)                                         :: U_MIN = -4.0, U_MAX = +4.0, V_MIN = -4.0, V_MAX = +4.0 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
     real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
 
@@ -1766,7 +1766,7 @@ program Cavity
             write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
         end if
 
-        if (mod(iter,1000)==0) then
+        if (mod(iter,500)==0) then
             call Output()
         end if
 

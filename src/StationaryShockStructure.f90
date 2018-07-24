@@ -18,6 +18,10 @@ module ConstantVariables
     real(KREAL), parameter                              :: PI = 4.0*atan(1.0) !Pi
     real(KREAL), parameter                              :: SMV = tiny(0.0) !Small value to avoid 0/0
     real(KREAL), parameter                              :: UP = 1.0 !Used in sign() function
+
+    !Dissipation in tau
+    integer(KINT), parameter                            :: OFF = 0
+    integer(KINT), parameter                            :: ON = 1
 end module ConstantVariables
 
 !--------------------------------------------------
@@ -63,7 +67,8 @@ module ControlParameters
     !--------------------------------------------------
     !Variables to control the simulation
     !--------------------------------------------------
-    real(KREAL), parameter                              :: CFL = 0.95 !CFL number
+    integer(KINT), parameter                            :: TAU_DISSIPATION = OFF !Add dissipation in tau
+    real(KREAL), parameter                              :: CFL = 0.9 !CFL number
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E5 !Maximal iteration number
@@ -79,13 +84,13 @@ module ControlParameters
     !Gas propeties
     integer(KINT), parameter                            :: CK = 2 !Internal degree of freedom, here 2 denotes monatomic gas
     real(KREAL), parameter                              :: GAMMA = real(CK+3,KREAL)/real(CK+1,KREAL) !Ratio of specific heat
-    real(KREAL), parameter                              :: OMEGA = 0.72 !Temperature dependence index in HS/VHS/VSS model
+    real(KREAL), parameter                              :: OMEGA = 0.5 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
     real(KREAL), parameter                              :: KN = 1.0 !Knudsen number in reference state
     real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in HS model
     real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in HS model
     real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
-    real(KREAL), parameter                              :: MA = 8.0 !Mach number
+    real(KREAL), parameter                              :: MA = 3.0 !Mach number
     !Geometry
     real(KREAL), parameter                              :: START_POINT = 0.0, END_POINT = 50.0
     integer(KINT), parameter                            :: POINTS_NUM = 100
@@ -448,8 +453,13 @@ contains
         real(KREAL), intent(in)                         :: prim(3),prim_L(3),prim_R(3)
         real(KREAL)                                     :: GetTau
 
-        ! GetTau = MU_REF*2.0*prim(3)**(1-OMEGA)/prim(1)
-        GetTau = MU_REF*2.0*prim(3)**(1-OMEGA)/prim(1)+dt*abs(prim_L(1)/prim_L(3)-prim_R(1)/prim_R(3))/abs(prim_L(1)/prim_L(3)+prim_R(1)/prim_R(3)+SMV) !Add numerical dissipation
+        if (TAU_DISSIPATION==OFF) then
+            GetTau = MU_REF*2.0*prim(3)**(1-OMEGA)/prim(1)
+        elseif (TAU_DISSIPATION==ON) then
+            GetTau = MU_REF*2.0*prim(3)**(1-OMEGA)/prim(1)+dt*abs(prim_L(1)/prim_L(3)-prim_R(1)/prim_R(3))/abs(prim_L(1)/prim_L(3)+prim_R(1)/prim_R(3)+SMV) !Add numerical dissipation
+        else
+            stop "Error in TAU_DISSIPATION!"
+        end if
     end function GetTau
 
     !--------------------------------------------------
@@ -893,9 +903,9 @@ contains
         end do
 
         !Normalization
-        do i=1,3
-            solution(i,:) = (solution(i,:)-solution(i,IXMIN-GHOST_NUM))/(solution(i,IXMAX+GHOST_NUM)-solution(i,IXMIN-GHOST_NUM))
-        end do
+        solution(1,:) = (solution(1,:)-solution(1,IXMIN-GHOST_NUM))/(solution(1,IXMAX+GHOST_NUM)-solution(1,IXMIN-GHOST_NUM))
+        solution(2,:) = (solution(2,:)-solution(2,IXMAX+GHOST_NUM))/(solution(2,IXMIN-GHOST_NUM)-solution(2,IXMAX+GHOST_NUM))
+        solution(3,:) = (solution(3,:)-solution(3,IXMIN-GHOST_NUM))/(solution(3,IXMAX+GHOST_NUM)-solution(3,IXMIN-GHOST_NUM))
 
         !--------------------------------------------------
         !Write to file
