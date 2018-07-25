@@ -68,7 +68,7 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     integer(KINT), parameter                            :: TAU_DISSIPATION = OFF !Add dissipation in tau
-    integer(KINT), parameter                            :: OUTPUT_DISTRIBUTION = ON !output distribution function
+    integer(KINT), parameter                            :: OUTPUT_DISTRIBUTION = OFF !output distribution function
     real(KREAL), parameter                              :: CFL = 0.9 !CFL number
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
@@ -88,16 +88,16 @@ module ControlParameters
     !Gas propeties
     integer(KINT), parameter                            :: CK = 2 !Internal degree of freedom, here 2 denotes monatomic gas
     real(KREAL), parameter                              :: GAMMA = real(CK+3,KREAL)/real(CK+1,KREAL) !Ratio of specific heat
-    real(KREAL), parameter                              :: OMEGA = 0.66 !Temperature dependence index in HS/VHS/VSS model
+    real(KREAL), parameter                              :: OMEGA = 0.81 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
     real(KREAL), parameter                              :: KN = 1.0 !Knudsen number in reference state
     real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in HS model
     real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in HS model
     real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
-    real(KREAL), parameter                              :: MA = 25.0 !Mach number
+    real(KREAL), parameter                              :: MA = 8.0 !Mach number
     !Geometry
     real(KREAL), parameter                              :: START_POINT = -25.0, END_POINT = 25.0
-    integer(KINT), parameter                            :: POINTS_NUM = 250
+    integer(KINT), parameter                            :: POINTS_NUM = 100
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = POINTS_NUM !Cell index range
     integer(KINT), parameter                            :: GHOST_NUM = 1 !Ghost cell number
 
@@ -131,8 +131,8 @@ module ControlParameters
     !--------------------------------------------------
     !Discrete velocity space
     !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 200 !Number of points in velocity space
-    real(KREAL), parameter                              :: U_MIN = -50.0, U_MAX = +50.0 !Minimum and maximum micro velocity
+    integer(KINT)                                       :: uNum = 100 !Number of points in velocity space
+    real(KREAL), parameter                              :: U_MIN = -15.0, U_MAX = +15.0 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:)              :: uSpace !Discrete velocity space
     real(KREAL), allocatable, dimension(:)              :: weight !Qudrature weight at velocity u_k
 
