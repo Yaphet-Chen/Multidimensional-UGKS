@@ -41,7 +41,7 @@ Cavity: checkdir
 	$(FC) $(FCFLAGS) -o $(BIN)/Cavity src/Cavity.f90
 
 BoundaryLayer: checkdir
-	$(FC) $(FCFLAGS) -o $(BIN)/Cavity src/BoundaryLayer.f90
+	$(FC) $(FCFLAGS) -o $(BIN)/BoundaryLayer src/BoundaryLayer.f90
 
 #clean
 clean:
