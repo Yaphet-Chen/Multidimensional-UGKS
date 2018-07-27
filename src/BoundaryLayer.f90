@@ -1246,15 +1246,15 @@ contains
         !Geometry (node coordinate)
         geometry(:,IYMIN)%y = Y_START
         do j=IYMIN+1,IYMAX+1
-            geometry(:,j)%y = Y_START+DY_MIN*RY_U**(j-2)
+            geometry(:,j)%y = geometry(:,j-1)%y+DY_MIN*RY_U**(j-2)
         end do
 
         geometry(1,:)%x = X_START
         do i=2,IXMAX+1
-            geometry(i,:)%x = X_START+DX_MIN*RX_R**(i-2)
+            geometry(i,:)%x = geometry(i-1,:)%x+DX_MIN*RX_R**(i-2)
         end do
         do i=0,IXMIN,-1
-            geometry(i,:)%x = X_START-DX_MIN*RX_L**(-i)
+            geometry(i,:)%x = geometry(i+1,:)%x-DX_MIN*RX_L**(-i)
         end do
 
         !Cell center
@@ -1619,31 +1619,31 @@ program BoundaryLayer
     call cpu_time(start)
 
     !Iteration
-    do while(.true.)
-        call TimeStep() !Calculate the time step
-        call Reconstruction() !Calculate the slope of distribution function
-        call Evolution() !Calculate flux across the interfaces
-        call Update() !Update cell averaged value
-        call Boundary() !Set up and right boundary
+    ! do while(.true.)
+    !     call TimeStep() !Calculate the time step
+    !     call Reconstruction() !Calculate the slope of distribution function
+    !     call Evolution() !Calculate flux across the interfaces
+    !     call Update() !Update cell averaged value
+    !     call Boundary() !Set up and right boundary
 
-        !Check stopping criterion
-        if(all(res<EPS) .or. iter>=MAX_ITER) exit
-        ! if(isnan(res(1)) .or. isnan(res(4))) exit
+    !     !Check stopping criterion
+    !     if(all(res<EPS) .or. iter>=MAX_ITER) exit
+    !     ! if(isnan(res(1)) .or. isnan(res(4))) exit
 
-        !Log the iteration situation every 10 iterations
-        if (mod(iter,10)==0) then
-            write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
-            write(*,"(A18,4E15.7)") "res:",res
-            write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
-        end if
+    !     !Log the iteration situation every 10 iterations
+    !     if (mod(iter,10)==0) then
+    !         write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
+    !         write(*,"(A18,4E15.7)") "res:",res
+    !         write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
+    !     end if
 
-        if (mod(iter,2000)==0) then
-            call Output()
-        end if
+    !     if (mod(iter,2000)==0) then
+    !         call Output()
+    !     end if
 
-        iter = iter+1
-        simTime = simTime+dt
-    end do
+    !     iter = iter+1
+    !     simTime = simTime+dt
+    ! end do
 
     !End timer
     call cpu_time(finish)
