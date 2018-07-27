@@ -115,10 +115,10 @@ module ControlParameters
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
-    real(KREAL), parameter                              :: CFL = 0.9 !CFL number
+    integer(KINT), parameter                            :: TIME_METHOD = LOCAL
+    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
-    real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
+    real(KREAL), parameter                              :: EPS = 1.0E-3 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
     real(KREAL)                                         :: dt !Global time step
@@ -997,6 +997,47 @@ contains
     end subroutine Reconstruction
 
     !--------------------------------------------------
+    !>Set adiabatic slip(x<0) or non-slip(x>o) boundary at bottom
+    !--------------------------------------------------
+    subroutine BottomBoundary()
+        integer(KINT)                                   :: i,j,l,m
+
+        !$omp parallel
+        !$omp do
+        do i=1,IXMAX+GHOST
+            ctr(i,IYMIN-GHOST)%conVars(1) = ctr(i,IYMIN)%conVars(1)
+            ctr(i,IYMIN-GHOST)%conVars(2) = -ctr(i,IYMIN)%conVars(2) !Reverse u velocity
+            ctr(i,IYMIN-GHOST)%conVars(3) = -ctr(i,IYMIN)%conVars(3) !Reverse v velocity
+            ctr(i,IYMIN-GHOST)%conVars(4) = ctr(i,IYMIN)%conVars(4)
+            forall(l=1:uNum,m=1:vNum)
+                !Make the distribution function central symmetry
+                ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(uNum-l+1,vNum-m+1)
+                ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(uNum-l+1,vNum-m+1)
+            end forall
+            ctr(i,IYMIN-GHOST)%sh = -ctr(i,IYMIN)%sh !Reverse u velocity slope
+            ctr(i,IYMIN-GHOST)%sb = -ctr(i,IYMIN)%sb !Reverse v velocity slope
+        end do
+        !$omp end do nowait
+        
+        !$omp do
+        do i=IXMIN,0
+            ctr(i,IYMIN-GHOST)%conVars(1) = ctr(i,IYMIN)%conVars(1)
+            ctr(i,IYMIN-GHOST)%conVars(2) = ctr(i,IYMIN)%conVars(2)
+            ctr(i,IYMIN-GHOST)%conVars(3) = -ctr(i,IYMIN)%conVars(3) !Only reverse v velocity
+            ctr(i,IYMIN-GHOST)%conVars(4) = ctr(i,IYMIN)%conVars(4)
+            forall(l=1:uNum,m=1:vNum)
+                !Make the distribution function u axial symmetry
+                ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(l,vNum-m+1)
+                ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(l,vNum-m+1)
+            end forall
+            ctr(i,IYMIN-GHOST)%sh = ctr(i,IYMIN)%sh
+            ctr(i,IYMIN-GHOST)%sb = -ctr(i,IYMIN)%sb !Only reverse v velocity slope
+        end do
+        !$omp end do nowait
+        !$omp end parallel
+    end subroutine BottomBoundary
+
+    !--------------------------------------------------
     !>Calculate the flux across the interfaces
     !--------------------------------------------------
     subroutine Evolution()
@@ -1009,7 +1050,7 @@ contains
         !$omp parallel
         !$omp do
         do j=IYMIN,IYMAX
-            do i=IXMIN+1,IXMAX
+            do i=IXMIN,IXMAX+1
                 call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
             end do
         end do
@@ -1017,7 +1058,7 @@ contains
 
         !Inner part
         !$omp do
-        do j=IYMIN+1,IYMAX
+        do j=IYMIN,IYMAX+1
             do i=IXMIN,IXMAX
                 call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
             end do
@@ -1028,34 +1069,25 @@ contains
         !--------------------------------------------------
         !Calculate interface flux
         !--------------------------------------------------
-
         !--------------------------------------------------
         !i direction
         !--------------------------------------------------
-        !Boundary part
-        !$omp parallel
-        ! !$omp do
-        ! do j=IYMIN,IYMAX
-        !     call CalcFluxBoundary(BC_W,vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN) !RN means no frame rotation
-        !     call CalcFluxBoundary(BC_E,vface(IXMAX+1,j),ctr(IXMAX,j),IDIRC,RY) !RY means with frame rotation
-        ! end do
-        ! !$omp end do nowait
-
         !Inner part
+        !$omp parallel
         !$omp do
         do j=IYMIN+1,IYMAX-1
-            do i=IXMIN+1,IXMAX
+            do i=IXMIN,IXMAX+1
                 call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC,vface(i,j+1),vface(i,j-1),1) !idb=1, not boundary, full central differcence for b_slope
             end do
         end do
         !$omp end do nowait
         !$omp do
-        do i=IXMIN+1,IXMAX
+        do i=IXMIN,IXMAX+1
             call CalcFlux(ctr(i-1,IYMIN),vface(i,IYMIN),ctr(i,IYMIN),IDIRC,vface(i,IYMIN+1),vface(i,IYMIN),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp do
-        do i=IXMIN+1,IXMAX
+        do i=IXMIN,IXMAX+1
             call CalcFlux(ctr(i-1,IYMAX),vface(i,IYMAX),ctr(i,IYMAX),IDIRC,vface(i,IYMAX),vface(i,IYMAX-1),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
@@ -1063,29 +1095,21 @@ contains
         !--------------------------------------------------
         !j direction
         !--------------------------------------------------
-        !Boundary part
-        ! !$omp do
-        ! do i=IXMIN,IXMAX
-        !     call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN) !RN means no frame rotation
-        !     call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY) !RY means with frame rotation 
-        ! end do
-        ! !$omp end do nowait
-
         !Inner part
         !$omp do
-        do j=IYMIN+1,IYMAX
+        do j=IYMIN,IYMAX+1
             do i=IXMIN+1,IXMAX-1
                 call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC,hface(i+1,j),hface(i-1,j),1) !idb=1, not boundary, full central differcence for b_slope
             end do
         end do
         !$omp end do nowait
         !$omp do
-        do j=IYMIN+1,IYMAX
+        do j=IYMIN,IYMAX+1
                 call CalcFlux(ctr(IXMIN,j-1),hface(IXMIN,j),ctr(IXMIN,j),JDIRC,hface(IXMIN+1,j),hface(IXMIN,j),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp do
-        do j=IYMIN+1,IYMAX
+        do j=IYMIN,IYMAX+1
                 call CalcFlux(ctr(IXMAX,j-1),hface(IXMAX,j),ctr(IXMAX,j),JDIRC,hface(IXMAX,j),hface(IXMAX-1,j),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
@@ -1195,6 +1219,29 @@ contains
         deallocate(H_plus)
         deallocate(B_plus)
     end subroutine Update
+
+    subroutine OutBoundary()
+        integer(KINT)                                   :: i,j
+
+        !Set upper free stream outflow boundary
+        forall(i=IXMIN-GHOST:IXMAX+GHOST)
+            ctr(i,IYMAX+GHOST)%conVars = ctr(i,IYMAX)%conVars
+            ctr(i,IYMAX+GHOST)%h = ctr(i,IYMAX)%h
+            ctr(i,IYMAX+GHOST)%b = ctr(i,IYMAX)%b
+            ctr(i,IYMAX+GHOST)%sh = ctr(i,IYMAX)%sh
+            ctr(i,IYMAX+GHOST)%sb = ctr(i,IYMAX)%sb
+        end forall
+
+        !Set right free stream outflow boundary
+        forall(j=IYMIN-GHOST:IYMAX+GHOST)
+            ctr(IXMAX+GHOST,j)%conVars = ctr(IXMAX,j)%conVars
+            ctr(IXMAX+GHOST,j)%h = ctr(IXMAX,j)%h
+            ctr(IXMAX+GHOST,j)%b = ctr(IXMAX,j)%b
+            ctr(IXMAX+GHOST,j)%sh = ctr(IXMAX,j)%sh
+            ctr(IXMAX+GHOST,j)%sb = ctr(IXMAX,j)%sb
+        end forall
+
+    end subroutine OutBoundary
 end module Solver
 
 !--------------------------------------------------
@@ -1619,31 +1666,32 @@ program BoundaryLayer
     call cpu_time(start)
 
     !Iteration
-    ! do while(.true.)
-    !     call TimeStep() !Calculate the time step
-    !     call Reconstruction() !Calculate the slope of distribution function
-    !     call Evolution() !Calculate flux across the interfaces
-    !     call Update() !Update cell averaged value
-    !     call Boundary() !Set up and right boundary
+    do while(.true.)
+        call TimeStep() !Calculate the time step
+        call Reconstruction() !Calculate the slope of distribution function
+        call BottomBoundary() !Set adiabatic slip/non-slip boundary at bottom
+        call Evolution() !Calculate flux across the interfaces
+        call Update() !Update cell averaged value
+        call OutBoundary() !Set free stream outflow boundary at right and up
 
-    !     !Check stopping criterion
-    !     if(all(res<EPS) .or. iter>=MAX_ITER) exit
-    !     ! if(isnan(res(1)) .or. isnan(res(4))) exit
+        !Check stopping criterion
+        if(all(res<EPS) .or. iter>=MAX_ITER) exit
+        if(isnan(res(1)) .or. isnan(res(4))) exit
 
-    !     !Log the iteration situation every 10 iterations
-    !     if (mod(iter,10)==0) then
-    !         write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
-    !         write(*,"(A18,4E15.7)") "res:",res
-    !         write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
-    !     end if
+        !Log the iteration situation every 10 iterations
+        if (mod(iter,10)==0) then
+            write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
+            write(*,"(A18,4E15.7)") "res:",res
+            write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
+        end if
 
-    !     if (mod(iter,2000)==0) then
-    !         call Output()
-    !     end if
+        if (mod(iter,10)==0) then
+            call Output()
+        end if
 
-    !     iter = iter+1
-    !     simTime = simTime+dt
-    ! end do
+        iter = iter+1
+        simTime = simTime+dt
+    end do
 
     !End timer
     call cpu_time(finish)
