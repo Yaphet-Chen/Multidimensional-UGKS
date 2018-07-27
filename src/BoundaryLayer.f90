@@ -142,9 +142,12 @@ module ControlParameters
     real(KREAL), parameter                              :: MU_REF = MA*sqrt(0.5*GAMMA)/Re !Viscosity coefficient in reference state
 
     !Geometry
-    real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction 
+    real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction
+    real(KREAL), parameter                              :: RX_L = 1.1, RX_R = 1.05, RY = 1.2 !Common ratio at x and y direction
+    real(KREAL), parameter                              :: DX_MIN = 0.1, DY_MIN = 0.0175 !Scale factor, i.e. minimal cell size
     integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 80, Y_NUM = 30 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = -X_NUM_L+1 , IXMAX = X_NUM_R, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
+    integer(KINT), parameter                           :: GHOST = 1 !Ghost point number
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
     !--------------------------------------------------
@@ -172,28 +175,10 @@ module ControlParameters
     !      ----------------          |
     !            (i,j)               |
     !---------------------------------
-    type(CellCenter)                                    :: ctr(IXMIN:IXMAX,IYMIN:IYMAX) !Cell center
+    type(CellCenter)                                    :: ctr(IXMIN-GHOST:IXMAX+GHOST,IYMIN-GHOST:IYMAX+GHOST) !Cell center
     type(CellInterface)                                 :: vface(IXMIN:IXMAX+1,IYMIN:IYMAX),hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Vertical and horizontal interfaces
     type(Grid)                                          :: geometry(IXMIN:IXMAX+1,IYMIN:IYMAX+1)
     real(KREAL)                                         :: dt_local(IXMIN:IXMAX,IYMIN:IYMAX) !Local time step
-
-    !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
-    real(KREAL), parameter, dimension(4)                :: INIT_GAS = [1.0, 0.0, 0.0, 1.0]
-
-    !Boundary condition (density, u-velocity, v-velocity, lambda=1/temperature)
-    !------------------------------
-    !              North
-    !          ------------
-    !          |           |
-    !   West   |           |   East
-    !          |           |
-    !          ------------
-    !              South
-    !------------------------------
-    real(KREAL), parameter, dimension(4)                :: BC_W = [1.0, 0.0, 0.0, 1.0] !West boundary
-    real(KREAL), parameter, dimension(4)                :: BC_E = [1.0, 0.0, 0.0, 1.0] !East boundary
-    real(KREAL), parameter, dimension(4)                :: BC_S = [1.0, 0.0, 0.0, 1.0] !South boundary
-    real(KREAL), parameter, dimension(4)                :: BC_N = [1.0, 0.15, 0.0, 1.0] !North boundary
 end module ControlParameters
 
 !--------------------------------------------------
@@ -1256,70 +1241,68 @@ contains
     !>Initialize Nonuniform mesh
     !--------------------------------------------------
     subroutine InitNonUniformMesh()
-        real(KREAL)                                     :: dx(IXMIN:IXMAX),dy(IYMIN:IYMAX)
-        real(KREAL)                                     :: x(IXMIN:IXMAX+1),y(IYMIN:IYMAX+1)
         integer(KINT)                                   :: i,j
 
-        !Cell length
-        x = (/(i,i=IXMIN-1,IXMAX)/)
-        y = (/(j,j=IYMIN-1,IYMAX)/)
-        x = x/IXMAX
-        y = y/IYMAX
-        x = (10.0-15.0*x+6.0*x**2)*x**3*(X_END-X_START)
-        y = (10.0-15.0*y+6.0*y**2)*y**3*(Y_END-Y_START)
-        do i=IXMIN,IXMAX
-            dx(i) = x(i+1)-x(i)
-        end do
-        do j=IYMIN,IYMAX
-            dy(j) = y(j+1)-y(j)
+        !Geometry (node coordinate)
+        geometry(:,IYMIN)%y = Y_START
+        do j=IYMIN+1,IYMAX+1
+            geometry(:,j)%y = Y_START+DY_MIN*RY**(j-2)
         end do
 
-        !Geometry (node coordinate)
-        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX+1)
-                geometry(i,j)%x = x(i)
-                geometry(i,j)%y = y(j)
-        end forall 
+        geometry(1,:)%x = X_START
+        do i=2,IXMAX+1
+            geometry(i,:)%x = X_START+DX_MIN*RX_R**(i-2)
+        end do
+        do i=0,IXMIN,-1
+            geometry(i,:)%x = X_START-DX_MIN*RX_L**(-i)
+        end do
 
         !Cell center
-        ctr(IXMIN,IYMIN)%x = X_START+0.5*dx(IXMIN)
-        ctr(IXMIN,IYMIN)%y = Y_START+0.5*dy(IYMIN)
-        ctr(IXMIN,IYMIN)%length(1) = dx(IXMIN)
-        ctr(IXMIN,IYMIN)%length(2) = dy(IYMIN)
-        ctr(IXMIN,IYMIN)%area = dx(IXMIN)*dy(IYMIN)
-        do i=IXMIN+1,IXMAX
-            ctr(i,IYMIN)%x = ctr(i-1,IYMIN)%x+dx(i)
-            ctr(i,IYMIN)%y = Y_START+0.5*dy(IYMIN)
-            ctr(i,IYMIN)%length(1) = dx(i)
-            ctr(i,IYMIN)%length(2) = dy(IYMIN)
-            ctr(i,IYMIN)%area = dx(i)*dy(IYMIN)
+        !Y direction
+        ctr(:,IYMIN)%y = Y_START+0.5*DY_MIN
+        ctr(:,IYMIN)%length(2) = DY_MIN
+        ctr(:,IYMIN-GHOST)%y = Y_START-0.5*DY_MIN
+        ctr(:,IYMIN-GHOST)%length(2) = DY_MIN
+        do j=IYMIN+1,IYMAX+GHOST
+            ctr(:,j)%length(2) = ctr(:,j-1)%length(2)*RY
+            ctr(:,j)%y = ctr(:,j-1)%y+0.5*(ctr(:,j)%length(2)+ctr(:,j-1)%length(2))
         end do
-        do j=IYMIN+1,IYMAX
-            ctr(IXMIN,j)%x = X_START+0.5*dx(IXMIN)
-            ctr(IXMIN,j)%y = ctr(IXMIN,j-1)%y+dy(j)
-            ctr(IXMIN,j)%length(1) = dx(IXMIN)
-            ctr(IXMIN,j)%length(2) = dy(j)
-            ctr(IXMIN,j)%area = dx(IXMIN)*dy(j)
+        !X direction (x>0)
+        ctr(1,:)%x = X_START+0.5*DX_MIN
+        ctr(1,:)%length(1) = DX_MIN
+        do i=2,IXMAX+GHOST
+            ctr(i,:)%length(1) = ctr(i-1,:)%length(1)*RX_R
+            ctr(i,:)%x = ctr(i-1,:)%x+0.5(ctr(i,:)%length(1)+ctr(i-1,:)%length(1))
         end do
-        do j=IYMIN+1,IYMAX
-            do i=IXMIN+1,IXMAX
-                ctr(i,j)%x = ctr(i-1,j)%x+dx(i)
-                ctr(i,j)%y = ctr(i,j-1)%y+dy(j)
-                ctr(i,j)%length(1) = dx(i)
-                ctr(i,j)%length(2) = dx(j)
-                ctr(i,j)%area = dx(i)*dy(j)
+        !X direction (x<0)
+        ctr(0,:)%x = X_START-0.5*DX_MIN
+        ctr(0,:)%length(1) = DX_MIN
+        do i=-1,IXMIN-GHOST,-1
+            ctr(i,:)%length(1) = ctr(i+1,:)%length(1)*RX_L
+            ctr(i,:)%x = ctr(i+1,:)%x-0.5(ctr(i,:)%length(1)+ctr(i+1,:)%length(1))
+        end do
+
+        do j=IYMIN-GHOST,IYMAX+GHOST
+            do i=IXMIN-GHOST,IXMAX+GHOST
+                ctr(i,j)%area = ctr(i,j)%length(1)*ctr(i,j)%length(2)
             end do
         end do
 
         !Vertical interface
         forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
-            vface(i,j)%length = dy(j)
+            vface(i,j)%length = DY_MIN*RY**(j-1)
             vface(i,j)%cosx = 1.0
             vface(i,j)%cosy = 0.0
         end forall
 
         !Horizontal interface
-        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = dx(i)
+        forall(i=1:IXMAX,j=IYMIN:IYMAX+1)
+            hface(i,j)%length = DX_MIN*RX_R**(i-1)
+            hface(i,j)%cosx = 0.0
+            hface(i,j)%cosy = 1.0
+        end forall
+        forall(i=IXMIN:0,j=IYMIN:IYMAX+1)
+            hface(i,j)%length = DX_MIN*RX_L**(-i)
             hface(i,j)%cosx = 0.0
             hface(i,j)%cosy = 1.0
         end forall
@@ -1433,8 +1416,8 @@ contains
         integer(KINT)                                   :: i,j
 
         !Cell center
-        do j=IYMIN,IYMAX
-            do i=IXMIN,IXMAX
+        do j=IYMIN-GHOST,IYMAX+GHOST
+            do i=IXMIN-GHOST,IXMAX+GHOST
                 allocate(ctr(i,j)%h(num_u,num_v))
                 allocate(ctr(i,j)%b(num_u,num_v))
                 allocate(ctr(i,j)%sh(num_u,num_v,2))
@@ -1466,6 +1449,7 @@ contains
     subroutine InitFlowField()
         real(KREAL), allocatable, dimension(:,:)        :: H,B !Reduced distribution functions
         real(KREAL)                                     :: conVars(4) !Conservative variables
+        real(KREAL)                                     :: INIT_GAS = [1.0, 0.0, 0.0, 1.0] !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
         integer(KINT)                                   :: i,j
 
         !Allocation
@@ -1477,13 +1461,24 @@ contains
         call DiscreteMaxwell(H,B,uSpace,vSpace,INIT_GAS)
 
         !Initialize field
-        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX)
+        forall(i=IXMIN:IXMAX+GHOST,j=IYMIN-GHOST:IYMAX+GHOST)
             ctr(i,j)%conVars = conVars
             ctr(i,j)%h = H
             ctr(i,j)%b = B
             ctr(i,j)%sh = 0.0
             ctr(i,j)%sb = 0.0
         end forall
+        
+        !Initialize left free stream inflow boundary
+        INIT_GAS(2) = MA*sqrt(0.5*GAMMA) !Set u-velocity
+        conVars = GetConserved(INIT_GAS)
+        call DiscreteMaxwell(H,B,uSpace,vSpace,INIT_GAS)
+
+        ctr(IXMIN-GHOST,:)%conVars = conVars
+        ctr(IXMIN-GHOST,:)%h = H
+        ctr(IXMIN-GHOST,:)%b = B
+        ctr(IXMIN-GHOST,:)%sh = 0.0
+        ctr(IXMIN-GHOST,:)%sb = 0.0
 
         !Deallocation
         deallocate(H)
@@ -1502,8 +1497,8 @@ contains
         deallocate(weight)
 
         !Cell center
-        do j=IYMIN,IYMAX
-            do i=IXMIN,IXMAX
+        do j=IYMIN-GHOST,IYMAX+GHOST
+            do i=IXMIN-GHOST,IXMAX+GHOST
                 deallocate(ctr(i,j)%h)
                 deallocate(ctr(i,j)%b)
                 deallocate(ctr(i,j)%sh)
