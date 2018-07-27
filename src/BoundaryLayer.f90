@@ -143,7 +143,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction
-    real(KREAL), parameter                              :: RX_L = 1.1, RX_R = 1.05, RY = 1.2 !Common ratio at x and y direction
+    real(KREAL), parameter                              :: RX_L = 1.1, RX_R = 1.05, RY_U = 1.2 !Common ratio at x and y direction
     real(KREAL), parameter                              :: DX_MIN = 0.1, DY_MIN = 0.0175 !Scale factor, i.e. minimal cell size
     integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 80, Y_NUM = 30 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = -X_NUM_L+1 , IXMAX = X_NUM_R, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
@@ -1034,12 +1034,12 @@ contains
         !--------------------------------------------------
         !Boundary part
         !$omp parallel
-        !$omp do
-        do j=IYMIN,IYMAX
-            call CalcFluxBoundary(BC_W,vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN) !RN means no frame rotation
-            call CalcFluxBoundary(BC_E,vface(IXMAX+1,j),ctr(IXMAX,j),IDIRC,RY) !RY means with frame rotation
-        end do
-        !$omp end do nowait
+        ! !$omp do
+        ! do j=IYMIN,IYMAX
+        !     call CalcFluxBoundary(BC_W,vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN) !RN means no frame rotation
+        !     call CalcFluxBoundary(BC_E,vface(IXMAX+1,j),ctr(IXMAX,j),IDIRC,RY) !RY means with frame rotation
+        ! end do
+        ! !$omp end do nowait
 
         !Inner part
         !$omp do
@@ -1064,12 +1064,12 @@ contains
         !j direction
         !--------------------------------------------------
         !Boundary part
-        !$omp do
-        do i=IXMIN,IXMAX
-            call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN) !RN means no frame rotation
-            call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY) !RY means with frame rotation 
-        end do
-        !$omp end do nowait
+        ! !$omp do
+        ! do i=IXMIN,IXMAX
+        !     call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN) !RN means no frame rotation
+        !     call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY) !RY means with frame rotation 
+        ! end do
+        ! !$omp end do nowait
 
         !Inner part
         !$omp do
@@ -1246,7 +1246,7 @@ contains
         !Geometry (node coordinate)
         geometry(:,IYMIN)%y = Y_START
         do j=IYMIN+1,IYMAX+1
-            geometry(:,j)%y = Y_START+DY_MIN*RY**(j-2)
+            geometry(:,j)%y = Y_START+DY_MIN*RY_U**(j-2)
         end do
 
         geometry(1,:)%x = X_START
@@ -1264,22 +1264,24 @@ contains
         ctr(:,IYMIN-GHOST)%y = Y_START-0.5*DY_MIN
         ctr(:,IYMIN-GHOST)%length(2) = DY_MIN
         do j=IYMIN+1,IYMAX+GHOST
-            ctr(:,j)%length(2) = ctr(:,j-1)%length(2)*RY
+            ctr(:,j)%length(2) = ctr(:,j-1)%length(2)*RY_U
             ctr(:,j)%y = ctr(:,j-1)%y+0.5*(ctr(:,j)%length(2)+ctr(:,j-1)%length(2))
         end do
+        
         !X direction (x>0)
         ctr(1,:)%x = X_START+0.5*DX_MIN
         ctr(1,:)%length(1) = DX_MIN
         do i=2,IXMAX+GHOST
             ctr(i,:)%length(1) = ctr(i-1,:)%length(1)*RX_R
-            ctr(i,:)%x = ctr(i-1,:)%x+0.5(ctr(i,:)%length(1)+ctr(i-1,:)%length(1))
+            ctr(i,:)%x = ctr(i-1,:)%x+0.5*(ctr(i,:)%length(1)+ctr(i-1,:)%length(1))
         end do
+
         !X direction (x<0)
         ctr(0,:)%x = X_START-0.5*DX_MIN
         ctr(0,:)%length(1) = DX_MIN
         do i=-1,IXMIN-GHOST,-1
             ctr(i,:)%length(1) = ctr(i+1,:)%length(1)*RX_L
-            ctr(i,:)%x = ctr(i+1,:)%x-0.5(ctr(i,:)%length(1)+ctr(i+1,:)%length(1))
+            ctr(i,:)%x = ctr(i+1,:)%x-0.5*(ctr(i,:)%length(1)+ctr(i+1,:)%length(1))
         end do
 
         do j=IYMIN-GHOST,IYMAX+GHOST
@@ -1290,7 +1292,7 @@ contains
 
         !Vertical interface
         forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
-            vface(i,j)%length = DY_MIN*RY**(j-1)
+            vface(i,j)%length = DY_MIN*RY_U**(j-1)
             vface(i,j)%cosx = 1.0
             vface(i,j)%cosy = 0.0
         end forall
@@ -1449,7 +1451,7 @@ contains
     subroutine InitFlowField()
         real(KREAL), allocatable, dimension(:,:)        :: H,B !Reduced distribution functions
         real(KREAL)                                     :: conVars(4) !Conservative variables
-        real(KREAL)                                     :: INIT_GAS = [1.0, 0.0, 0.0, 1.0] !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
+        real(KREAL), dimension(4)                       :: INIT_GAS = [1.0, 0.0, 0.0, 1.0] !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
         integer(KINT)                                   :: i,j
 
         !Allocation
@@ -1474,11 +1476,13 @@ contains
         conVars = GetConserved(INIT_GAS)
         call DiscreteMaxwell(H,B,uSpace,vSpace,INIT_GAS)
 
-        ctr(IXMIN-GHOST,:)%conVars = conVars
-        ctr(IXMIN-GHOST,:)%h = H
-        ctr(IXMIN-GHOST,:)%b = B
-        ctr(IXMIN-GHOST,:)%sh = 0.0
-        ctr(IXMIN-GHOST,:)%sb = 0.0
+        forall(j=IYMIN-GHOST:IYMAX+GHOST)
+            ctr(IXMIN-GHOST,j)%conVars = conVars
+            ctr(IXMIN-GHOST,j)%h = H
+            ctr(IXMIN-GHOST,j)%b = B
+            ctr(IXMIN-GHOST,j)%sh = 0.0
+            ctr(IXMIN-GHOST,j)%sb = 0.0
+        end forall
 
         !Deallocation
         deallocate(H)
