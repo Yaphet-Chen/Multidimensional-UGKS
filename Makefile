@@ -27,7 +27,7 @@ BIN = bin
 #--------------------------------------------------
 #compiling
 #--------------------------------------------------
-all: checkdir StationaryShockStructure Cavity
+all: checkdir StationaryShockStructure Cavity BoundaryLayer
 
 #mkdir
 checkdir:
@@ -39,6 +39,9 @@ StationaryShockStructure: checkdir
 
 Cavity: checkdir
 	$(FC) $(FCFLAGS) -o $(BIN)/Cavity src/Cavity.f90
+
+BoundaryLayer: checkdir
+	$(FC) $(FCFLAGS) -o $(BIN)/Cavity src/BoundaryLayer.f90
 
 #clean
 clean:

@@ -25,9 +25,7 @@ module ConstantVariables
     integer(KINT), parameter                            :: CENTRAL = 2 !Central difference reconstruction
 
     !Mesh type
-    integer(KINT), parameter                            :: UNIFORM = 0 !Uniform mesh
     integer(KINT), parameter                            :: NONUNIFORM = 1 !Non-uniform mesh
-    integer(KINT), parameter                            :: RAND = 2 !Random mesh
 
     !Output
     integer(KINT), parameter                            :: CENTER = 0 !Output solution as cell centered value
@@ -114,12 +112,11 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
-    integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
+    integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
     real(KREAL), parameter                              :: CFL = 0.9 !CFL number
-    real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -128,8 +125,8 @@ module ControlParameters
     real(KREAL)                                         :: res(4) !Residual
     
     !Output control
-    character(len=6), parameter                         :: HSTFILENAME = "Cavity" !History file name
-    character(len=6), parameter                         :: RSTFILENAME = "Cavity" !Result file name
+    character(len=13), parameter                        :: HSTFILENAME = "BoundaryLayer" !History file name
+    character(len=13), parameter                        :: RSTFILENAME = "BoundaryLayer" !Result file name
     integer(KINT), parameter                            :: HSTFILE = 20 !History file ID
     integer(KINT), parameter                            :: RSTFILE = 21 !Result file ID
 
@@ -139,20 +136,15 @@ module ControlParameters
     real(KREAL), parameter                              :: OMEGA = 0.0 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
 
-    ! MU_REF determined by Kn number
-    ! real(KREAL), parameter                              :: KN = 10 !Knudsen number in reference state
-    ! real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
-    ! real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
-    ! real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
-
-    ! MU_REF determined by Re number
+    !MU_REF determined by Re number
+    real(KREAL), parameter                              :: MA = 0.3 !Free stream inflow Mach number
     real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
-    real(KREAL), parameter                              :: MU_REF = 0.15/Re !Viscosity coefficient in reference state
+    real(KREAL), parameter                              :: MU_REF = MA*sqrt(0.5*GAMMA)/Re !Viscosity coefficient in reference state
 
     !Geometry
-    real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 121, Y_NUM = 121 !Points number in x, y direction
-    integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
+    real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction 
+    integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 80, Y_NUM = 30 !Points number in x, y direction
+    integer(KINT), parameter                            :: IXMIN = -X_NUM_L+1 , IXMAX = X_NUM_R, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
     !--------------------------------------------------
@@ -1253,134 +1245,12 @@ contains
     !>Initialize mesh
     !--------------------------------------------------
     subroutine InitMesh()
-        if (MESH_TYPE==UNIFORM) then
-            call InitUniformMesh() !Initialize Uniform mesh
-        elseif (MESH_TYPE==NONUNIFORM) then
+        if (MESH_TYPE==NONUNIFORM) then
             call InitNonUniformMesh()
-        elseif (MESH_TYPE==RAND) then
-            call InitRandomMesh()
         else
             stop "Error in MESH_TYPE!"
         end if
     end subroutine InitMesh
-
-    !--------------------------------------------------
-    !>Initialize uniform mesh
-    !--------------------------------------------------
-    subroutine InitUniformMesh()
-        real(KREAL)                                     :: dx,dy
-        integer(KINT)                                   :: i,j
-
-        !Cell length
-        dx = (X_END-X_START)/(IXMAX-IXMIN+1)
-        dy = (Y_END-Y_START)/(IYMAX-IYMIN+1)
-
-        !Geometry (node coordinate)
-        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX+1)
-                geometry(i,j)%x = X_START+(i-1)*dx
-                geometry(i,j)%y = Y_START+(j-1)*dy
-        end forall
-
-        !Cell center
-        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX)
-            ctr(i,j)%x = X_START+(i-IXMIN+0.5)*dx
-            ctr(i,j)%y = Y_START+(j-IYMIN+0.5)*dy
-            ctr(i,j)%length(1) = dx
-            ctr(i,j)%length(2) = dy
-            ctr(i,j)%area = dx*dy
-        end forall
-        
-        !Vertical interface
-        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
-            vface(i,j)%length = dy
-            vface(i,j)%cosx = 1.0
-            vface(i,j)%cosy = 0.0
-        end forall
-
-        !Horizontal interface
-        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = dx
-            hface(i,j)%cosx = 0.0
-            hface(i,j)%cosy = 1.0
-        end forall
-    end subroutine InitUniformMesh
-
-    !--------------------------------------------------
-    !>Initialize random mesh
-    !--------------------------------------------------
-    subroutine InitRandomMesh()
-        real(KREAL)                                     :: dx(IXMIN:IXMAX),dy(IYMIN:IYMAX)
-        integer(KINT)                                   :: i,j
-
-        call random_number(dx)
-        call random_number(dy)
-
-        !Cell length
-        dx = dx/sum(dx)*(X_END-X_START)
-        dy = dy/sum(dy)*(Y_END-Y_START)
-
-        !Geometry (node coordinate)
-        geometry(IXMIN,IYMIN)%x = X_START
-        geometry(IXMIN,IYMIN)%y = Y_START
-        do i=IXMIN+1,IXMAX+1
-            geometry(i,IYMIN)%x = geometry(i-1,IYMIN)%x+dx(i-1)
-            geometry(i,IYMIN)%y = Y_START
-        end do
-        do j=IYMIN+1,IYMAX+1
-            geometry(IXMIN,j)%x = X_START
-            geometry(IXMIN,j)%y = geometry(IXMIN,j-1)%y+dy(j-1)
-        end do
-        do j=IYMIN+1,IYMAX+1
-            do i=IXMIN+1,IXMAX+1
-                geometry(i,j)%x = geometry(i-1,j)%x+dx(i-1)
-                geometry(i,j)%y = geometry(i,j-1)%y+dy(j-1)
-            end do
-        end do
-
-        !Cell center
-        ctr(IXMIN,IYMIN)%x = X_START+0.5*dx(IXMIN)
-        ctr(IXMIN,IYMIN)%y = Y_START+0.5*dy(IYMIN)
-        ctr(IXMIN,IYMIN)%length(1) = dx(IXMIN)
-        ctr(IXMIN,IYMIN)%length(2) = dy(IYMIN)
-        ctr(IXMIN,IYMIN)%area = dx(IXMIN)*dy(IYMIN)
-        do i=IXMIN+1,IXMAX
-            ctr(i,IYMIN)%x = ctr(i-1,IYMIN)%x+dx(i)
-            ctr(i,IYMIN)%y = Y_START+0.5*dy(IYMIN)
-            ctr(i,IYMIN)%length(1) = dx(i)
-            ctr(i,IYMIN)%length(2) = dy(IYMIN)
-            ctr(i,IYMIN)%area = dx(i)*dy(IYMIN)
-        end do
-        do j=IYMIN+1,IYMAX
-            ctr(IXMIN,j)%x = X_START+0.5*dx(IXMIN)
-            ctr(IXMIN,j)%y = ctr(IXMIN,j-1)%y+dy(j)
-            ctr(IXMIN,j)%length(1) = dx(IXMIN)
-            ctr(IXMIN,j)%length(2) = dy(j)
-            ctr(IXMIN,j)%area = dx(IXMIN)*dy(j)
-        end do
-        do j=IYMIN+1,IYMAX
-            do i=IXMIN+1,IXMAX
-                ctr(i,j)%x = ctr(i-1,j)%x+dx(i)
-                ctr(i,j)%y = ctr(i,j-1)%y+dy(j)
-                ctr(i,j)%length(1) = dx(i)
-                ctr(i,j)%length(2) = dx(j)
-                ctr(i,j)%area = dx(i)*dy(j)
-            end do
-        end do
-
-        !Vertical interface
-        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
-            vface(i,j)%length = dy(j)
-            vface(i,j)%cosx = 1.0
-            vface(i,j)%cosy = 0.0
-        end forall
-
-        !Horizontal interface
-        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = dx(i)
-            hface(i,j)%cosx = 0.0
-            hface(i,j)%cosy = 1.0
-        end forall
-    end subroutine InitRandomMesh
 
     !--------------------------------------------------
     !>Initialize Nonuniform mesh
@@ -1730,7 +1600,7 @@ end module Writer
 !--------------------------------------------------
 !>Main program
 !--------------------------------------------------
-program Cavity
+program BoundaryLayer
     use Initialization
     use Solver
     use Writer
@@ -1755,9 +1625,9 @@ program Cavity
         call Reconstruction() !Calculate the slope of distribution function
         call Evolution() !Calculate flux across the interfaces
         call Update() !Update cell averaged value
+        call Boundary() !Set up and right boundary
 
         !Check stopping criterion
-        ! if (simTime>=MAX_TIME .or. iter>=MAX_ITER) exit
         if(all(res<EPS) .or. iter>=MAX_ITER) exit
         ! if(isnan(res(1)) .or. isnan(res(4))) exit
 
@@ -1788,4 +1658,4 @@ program Cavity
 
     !Aftermath
     call AfterDeallocation()
-end program Cavity
+end program BoundaryLayer
