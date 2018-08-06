@@ -959,7 +959,7 @@ contains
         !Boundary part
         !$omp do
         do j=IYMIN,IYMAX
-            call InterpBoundary(ctr(IXMIN,j),ctr(IXMIN,j),ctr(IXMIN+1,j),IDIRC) !the last argument indicating i direction
+            call VanLeerLimiter(ctr(IXMIN-1,j),ctr(IXMIN,j),ctr(IXMIN+1,j),IDIRC) !Special treatment for inflow boundary condition
             call InterpBoundary(ctr(IXMAX-1,j),ctr(IXMAX,j),ctr(IXMAX,j),IDIRC)
         end do
         !$omp end do nowait
