@@ -1233,10 +1233,10 @@ contains
         !Set upper free stream outflow boundary
         do i=IXMIN-GHOST,IXMAX+GHOST
             ctr(i,IYMAX+GHOST)%conVars = ctr(i,IYMAX)%conVars
-            ctr(i,IYMAX+GHOST)%h = ctr(i,IYMAX)%h
-            ctr(i,IYMAX+GHOST)%b = ctr(i,IYMAX)%b
-            ctr(i,IYMAX+GHOST)%sh = ctr(i,IYMAX)%sh
-            ctr(i,IYMAX+GHOST)%sb = ctr(i,IYMAX)%sb
+            ctr(i,IYMAX+GHOST)%h = ctr(i,IYMAX)%h+0.5*ctr(i,IYMAX)%length(2)*ctr(i,IYMAX)%sh(:,:,2)
+            ctr(i,IYMAX+GHOST)%b = ctr(i,IYMAX)%b+0.5*ctr(i,IYMAX)%length(2)*ctr(i,IYMAX)%sb(:,:,2)
+            ctr(i,IYMAX+GHOST)%sh = 0.0
+            ctr(i,IYMAX+GHOST)%sb = 0.0
         end do
         !$omp end do nowait
         
@@ -1244,10 +1244,10 @@ contains
         !Set right free stream outflow boundary
         do j=IYMIN-GHOST,IYMAX+GHOST
             ctr(IXMAX+GHOST,j)%conVars = ctr(IXMAX,j)%conVars
-            ctr(IXMAX+GHOST,j)%h = ctr(IXMAX,j)%h
-            ctr(IXMAX+GHOST,j)%b = ctr(IXMAX,j)%b
-            ctr(IXMAX+GHOST,j)%sh = ctr(IXMAX,j)%sh
-            ctr(IXMAX+GHOST,j)%sb = ctr(IXMAX,j)%sb
+            ctr(IXMAX+GHOST,j)%h = ctr(IXMAX,j)%h+0.5*ctr(IXMAX,j)%length(1)*ctr(IXMAX,j)%sh(:,:,1)
+            ctr(IXMAX+GHOST,j)%b = ctr(IXMAX,j)%b+0.5*ctr(IXMAX,j)%length(1)*ctr(IXMAX,j)%sb(:,:,1)
+            ctr(IXMAX+GHOST,j)%sh = 0.0
+            ctr(IXMAX+GHOST,j)%sb = 0.0
         end do
         !$omp end do nowait
         !$omp end parallel
