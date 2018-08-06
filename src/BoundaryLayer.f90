@@ -111,14 +111,14 @@ module ControlParameters
     !--------------------------------------------------
     !Variables to control the simulation
     !--------------------------------------------------
-    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = LIMITER
+    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: TIME_METHOD = LOCAL
-    real(KREAL), parameter                              :: CFL = 0.7 !CFL number
+    integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
+    real(KREAL), parameter                              :: CFL = 0.9 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
-    real(KREAL), parameter                              :: EPS = 1.0E-3 !Convergence criteria
+    real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
     real(KREAL)                                         :: dt !Global time step
@@ -1014,8 +1014,8 @@ contains
                     ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(uNum-l+1,vNum-m+1)
                     ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(uNum-l+1,vNum-m+1)
                     !Do the same thing for slope
-                    ctr(i,IYMIN-GHOST)%sh(l,m) = -ctr(i,IYMIN)%sh(uNum-l+1,vNum-m+1) !Reverse u velocity slope
-                    ctr(i,IYMIN-GHOST)%sb(l,m) = -ctr(i,IYMIN)%sb(uNum-l+1,vNum-m+1) !Reverse v velocity slope
+                    ctr(i,IYMIN-GHOST)%sh(l,m,:) = -ctr(i,IYMIN)%sh(uNum-l+1,vNum-m+1,:) !Reverse u velocity slope
+                    ctr(i,IYMIN-GHOST)%sb(l,m,:) = -ctr(i,IYMIN)%sb(uNum-l+1,vNum-m+1,:) !Reverse v velocity slope
                 end do
             end do
         end do
@@ -1033,8 +1033,8 @@ contains
                     ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(l,vNum-m+1)
                     ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(l,vNum-m+1)
                     !Do the same thing for slope
-                    ctr(i,IYMIN-GHOST)%sh(l,m) = ctr(i,IYMIN)%sh(l,vNum-m+1)
-                    ctr(i,IYMIN-GHOST)%sb(l,m) = -ctr(i,IYMIN)%sb(l,vNum-m+1) !Only reverse v velocity slope
+                    ctr(i,IYMIN-GHOST)%sh(l,m,:) = ctr(i,IYMIN)%sh(l,vNum-m+1,:)
+                    ctr(i,IYMIN-GHOST)%sb(l,m,:) = -ctr(i,IYMIN)%sb(l,vNum-m+1,:) !Only reverse v velocity slope
                 end do
             end do
         end do
