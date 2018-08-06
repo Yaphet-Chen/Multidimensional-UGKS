@@ -111,12 +111,12 @@ module ControlParameters
     !--------------------------------------------------
     !Variables to control the simulation
     !--------------------------------------------------
-    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
+    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = LIMITER
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = LOCAL
-    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.7 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-3 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -145,9 +145,9 @@ module ControlParameters
     real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction
     real(KREAL), parameter                              :: RX_L = 1.1, RX_R = 1.05, RY_U = 1.2 !Common ratio at x and y direction
     real(KREAL), parameter                              :: DX_MIN = 0.1, DY_MIN = 0.0175 !Scale factor, i.e. minimal cell size
-    integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 80, Y_NUM = 30 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 83, Y_NUM = 33 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = -X_NUM_L+1 , IXMAX = X_NUM_R, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
-    integer(KINT), parameter                           :: GHOST = 1 !Ghost point number
+    integer(KINT), parameter                            :: GHOST = 1 !Ghost point number
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
     !--------------------------------------------------
@@ -448,7 +448,6 @@ contains
         real(KREAL)                                     :: Mbu(4) !<b*u*v*\psi>
         real(KREAL)                                     :: tau !Collision time
         real(KREAL)                                     :: Mt(5) !Some time integration terms
-        integer(KINT)                                   :: i,j
 
         !--------------------------------------------------
         !Prepare
@@ -897,9 +896,9 @@ contains
 
         
         if (RECONSTRUCTION_METHOD==LIMITER) then
-            ! call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
-            targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
-            targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
+            ! targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            ! targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
         elseif (RECONSTRUCTION_METHOD==CENTRAL) then
             targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
             targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
@@ -1000,7 +999,7 @@ contains
     !>Set adiabatic slip(x<0) or non-slip(x>o) boundary at bottom
     !--------------------------------------------------
     subroutine BottomBoundary()
-        integer(KINT)                                   :: i,j,l,m
+        integer(KINT)                                   :: i,l,m
 
         !$omp parallel
         !$omp do
@@ -1009,13 +1008,16 @@ contains
             ctr(i,IYMIN-GHOST)%conVars(2) = -ctr(i,IYMIN)%conVars(2) !Reverse u velocity
             ctr(i,IYMIN-GHOST)%conVars(3) = -ctr(i,IYMIN)%conVars(3) !Reverse v velocity
             ctr(i,IYMIN-GHOST)%conVars(4) = ctr(i,IYMIN)%conVars(4)
-            forall(l=1:uNum,m=1:vNum)
-                !Make the distribution function central symmetry
-                ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(uNum-l+1,vNum-m+1)
-                ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(uNum-l+1,vNum-m+1)
-            end forall
-            ctr(i,IYMIN-GHOST)%sh = -ctr(i,IYMIN)%sh !Reverse u velocity slope
-            ctr(i,IYMIN-GHOST)%sb = -ctr(i,IYMIN)%sb !Reverse v velocity slope
+            do m=1,vNum
+                do l=1,uNum
+                    !Make the distribution function central symmetry
+                    ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(uNum-l+1,vNum-m+1)
+                    ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(uNum-l+1,vNum-m+1)
+                    !Do the same thing for slope
+                    ctr(i,IYMIN-GHOST)%sh(l,m) = -ctr(i,IYMIN)%sh(uNum-l+1,vNum-m+1) !Reverse u velocity slope
+                    ctr(i,IYMIN-GHOST)%sb(l,m) = -ctr(i,IYMIN)%sb(uNum-l+1,vNum-m+1) !Reverse v velocity slope
+                end do
+            end do
         end do
         !$omp end do nowait
         
@@ -1025,13 +1027,16 @@ contains
             ctr(i,IYMIN-GHOST)%conVars(2) = ctr(i,IYMIN)%conVars(2)
             ctr(i,IYMIN-GHOST)%conVars(3) = -ctr(i,IYMIN)%conVars(3) !Only reverse v velocity
             ctr(i,IYMIN-GHOST)%conVars(4) = ctr(i,IYMIN)%conVars(4)
-            forall(l=1:uNum,m=1:vNum)
-                !Make the distribution function u axial symmetry
-                ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(l,vNum-m+1)
-                ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(l,vNum-m+1)
-            end forall
-            ctr(i,IYMIN-GHOST)%sh = ctr(i,IYMIN)%sh
-            ctr(i,IYMIN-GHOST)%sb = -ctr(i,IYMIN)%sb !Only reverse v velocity slope
+            do m=1,vNum
+                do l=1,uNum
+                    !Make the distribution function u axial symmetry
+                    ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(l,vNum-m+1)
+                    ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(l,vNum-m+1)
+                    !Do the same thing for slope
+                    ctr(i,IYMIN-GHOST)%sh(l,m) = ctr(i,IYMIN)%sh(l,vNum-m+1)
+                    ctr(i,IYMIN-GHOST)%sb(l,m) = -ctr(i,IYMIN)%sb(l,vNum-m+1) !Only reverse v velocity slope
+                end do
+            end do
         end do
         !$omp end do nowait
         !$omp end parallel
@@ -1223,24 +1228,29 @@ contains
     subroutine OutBoundary()
         integer(KINT)                                   :: i,j
 
+        !$omp parallel
+        !$omp do
         !Set upper free stream outflow boundary
-        forall(i=IXMIN-GHOST:IXMAX+GHOST)
+        do i=IXMIN-GHOST,IXMAX+GHOST
             ctr(i,IYMAX+GHOST)%conVars = ctr(i,IYMAX)%conVars
             ctr(i,IYMAX+GHOST)%h = ctr(i,IYMAX)%h
             ctr(i,IYMAX+GHOST)%b = ctr(i,IYMAX)%b
             ctr(i,IYMAX+GHOST)%sh = ctr(i,IYMAX)%sh
             ctr(i,IYMAX+GHOST)%sb = ctr(i,IYMAX)%sb
-        end forall
-
+        end do
+        !$omp end do nowait
+        
+        !$omp do
         !Set right free stream outflow boundary
-        forall(j=IYMIN-GHOST:IYMAX+GHOST)
+        do j=IYMIN-GHOST,IYMAX+GHOST
             ctr(IXMAX+GHOST,j)%conVars = ctr(IXMAX,j)%conVars
             ctr(IXMAX+GHOST,j)%h = ctr(IXMAX,j)%h
             ctr(IXMAX+GHOST,j)%b = ctr(IXMAX,j)%b
             ctr(IXMAX+GHOST,j)%sh = ctr(IXMAX,j)%sh
             ctr(IXMAX+GHOST,j)%sb = ctr(IXMAX,j)%sb
-        end forall
-
+        end do
+        !$omp end do nowait
+        !$omp end parallel
     end subroutine OutBoundary
 end module Solver
 
@@ -1506,29 +1516,17 @@ contains
         allocate(B(uNum,vNum))
 
         !Get conservative variables and Maxwellian distribution function
+        INIT_GAS(2) = MA*sqrt(0.5*GAMMA) !Set u-velocity
         conVars = GetConserved(INIT_GAS)
         call DiscreteMaxwell(H,B,uSpace,vSpace,INIT_GAS)
 
-        !Initialize field
-        forall(i=IXMIN:IXMAX+GHOST,j=IYMIN-GHOST:IYMAX+GHOST)
+        !Initialize field and left free stream inflow boundary
+        forall(i=IXMIN-GHOST:IXMAX+GHOST,j=IYMIN-GHOST:IYMAX+GHOST)
             ctr(i,j)%conVars = conVars
             ctr(i,j)%h = H
             ctr(i,j)%b = B
             ctr(i,j)%sh = 0.0
             ctr(i,j)%sb = 0.0
-        end forall
-        
-        !Initialize left free stream inflow boundary
-        INIT_GAS(2) = MA*sqrt(0.5*GAMMA) !Set u-velocity
-        conVars = GetConserved(INIT_GAS)
-        call DiscreteMaxwell(H,B,uSpace,vSpace,INIT_GAS)
-
-        forall(j=IYMIN-GHOST:IYMAX+GHOST)
-            ctr(IXMIN-GHOST,j)%conVars = conVars
-            ctr(IXMIN-GHOST,j)%h = H
-            ctr(IXMIN-GHOST,j)%b = B
-            ctr(IXMIN-GHOST,j)%sh = 0.0
-            ctr(IXMIN-GHOST,j)%sb = 0.0
         end forall
 
         !Deallocation
@@ -1628,8 +1626,8 @@ contains
                 write(RSTFILE,*) "ZONE  I = ",IXMAX-IXMIN+1,", J = ",IYMAX-IYMIN+1,"DATAPACKING=BLOCK"
 
                 !write geometry (cell centered value)
-                write(RSTFILE,"(6(ES23.16,2X))") ctr%x
-                write(RSTFILE,"(6(ES23.16,2X))") ctr%y
+                write(RSTFILE,"(6(ES23.16,2X))") ctr(IXMIN:IXMAX,IYMIN:IYMAX)%x
+                write(RSTFILE,"(6(ES23.16,2X))") ctr(IXMIN:IXMAX,IYMIN:IYMAX)%y
         end select
 
         !Write solution (cell-centered)
@@ -1685,7 +1683,7 @@ program BoundaryLayer
             write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
         end if
 
-        if (mod(iter,10)==0) then
+        if (mod(iter,2000)==0) then
             call Output()
         end if
 
