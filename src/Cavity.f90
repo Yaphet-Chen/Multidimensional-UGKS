@@ -41,6 +41,10 @@ module ConstantVariables
     integer(KINT), parameter                            :: GLOBAL = 0 !Global time step
     integer(KINT), parameter                            :: LOCAL = 1 !Local time step
 
+    !Boundary type
+    integer(KINT), parameter                            :: KINETIC = 0 !Kinetic boundary condition
+    integer(KINT), parameter                            :: MULTISCALE = 1 !Multiscale boundary condition
+    
     !Direction
     integer(KINT), parameter                            :: IDIRC = 1 !I direction
     integer(KINT), parameter                            :: JDIRC = 2 !J direction
@@ -113,12 +117,13 @@ module ControlParameters
     !--------------------------------------------------
     !Variables to control the simulation
     !--------------------------------------------------
-    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = LIMITER
-    integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
-    integer(KINT), parameter                            :: QUADRATURE_TYPE = NEWTON
+    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
+    integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: TIME_METHOD = LOCAL
-    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
+    integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
+    integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
+    real(KREAL), parameter                              :: CFL = 0.9 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-3 !Convergence criteria
@@ -134,32 +139,32 @@ module ControlParameters
     integer(KINT), parameter                            :: RSTFILE = 21 !Result file ID
 
     !Gas propeties
-    integer(KINT), parameter                            :: CK = 1 !Internal degree of freedom, here 1 denotes monatomic gas
+    integer(KINT), parameter                            :: CK = 0 !Internal degree of freedom, here 1 denotes monatomic gas
     real(KREAL), parameter                              :: GAMMA = real(CK+4,KREAL)/real(CK+2,KREAL) !Ratio of specific heat
-    real(KREAL), parameter                              :: OMEGA = 0.81 !Temperature dependence index in HS/VHS/VSS model
+    real(KREAL), parameter                              :: OMEGA = 0.0 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
 
     ! MU_REF determined by Kn number
-    real(KREAL), parameter                              :: KN = 10 !Knudsen number in reference state
-    real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
-    real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
-    real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
+    ! real(KREAL), parameter                              :: KN = 10 !Knudsen number in reference state
+    ! real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
+    ! real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
+    ! real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
 
     ! MU_REF determined by Re number
-    ! real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
-    ! real(KREAL), parameter                              :: MU_REF = 0.15/Re !Viscosity coefficient in reference state
+    real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
+    real(KREAL), parameter                              :: MU_REF = 0.15/Re !Viscosity coefficient in reference state
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 51, Y_NUM = 51 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 21, Y_NUM = 21 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
     !--------------------------------------------------
     !Discrete velocity space
     !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 72, vNum = 72 !Number of points in velocity space for u and v
-    real(KREAL)                                         :: U_MIN = -4.0, U_MAX = +4.0, V_MIN = -3.0, V_MAX = +3.0 !Minimum and maximum micro velocity
+    integer(KINT)                                       :: uNum = 61, vNum = 61 !Number of points in velocity space for u and v
+    real(KREAL)                                         :: U_MIN = -4.0, U_MAX = +4.0, V_MIN = -4.0, V_MAX = +4.0 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
     real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
 
@@ -656,7 +661,30 @@ contains
     !>@param[in]    idx  :index indicating i or j direction
     !>@param[in]    rot  :indicating rotation
     !--------------------------------------------------
-    subroutine CalcFluxBoundary(bc,face,cell,idx,rot) 
+    subroutine CalcFluxBoundary(bc,face,cell,idx,rot)
+        real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
+        type(CellInterface), intent(inout)              :: face
+        type(CellCenter), intent(in)                    :: cell
+        integer(KINT), intent(in)                       :: idx,rot
+
+        if (BOUNDARY_TYPE==KINETIC) then
+            call KineticFluxBoundary(bc,face,cell,idx,rot)
+        elseif (BOUNDARY_TYPE==MULTISCALE) then
+            call MultiscaleFluxBoundary(bc,face,cell,idx,rot)
+        else
+            stop "Error in BOUNDARY_TYPE!"
+        end if
+    end subroutine CalcFluxBoundary
+
+    !--------------------------------------------------
+    !>Calculate kinetic flux of boundary interface, assuming left wall
+    !>@param[in]    bc   :boundary condition
+    !>@param[inout] face :the boundary interface
+    !>@param[in]    cell :cell next to the boundary interface
+    !>@param[in]    idx  :index indicating i or j direction
+    !>@param[in]    rot  :indicating rotation
+    !--------------------------------------------------
+    subroutine KineticFluxBoundary(bc,face,cell,idx,rot)
         real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
         type(CellInterface), intent(inout)              :: face
         type(CellCenter), intent(in)                    :: cell
@@ -744,7 +772,116 @@ contains
         deallocate(b)
         deallocate(H0)
         deallocate(B0)
-    end subroutine CalcFluxBoundary
+    end subroutine KineticFluxBoundary
+
+    !--------------------------------------------------
+    !>Calculate kinetic flux of boundary interface, assuming left wall
+    !>@param[in]    bc   :boundary condition
+    !>@param[inout] face :the boundary interface
+    !>@param[in]    cell :cell next to the boundary interface
+    !>@param[in]    idx  :index indicating i or j direction
+    !>@param[in]    rot  :indicating rotation
+    !--------------------------------------------------
+    subroutine MultiscaleFluxBoundary(bc,face,cell,idx,rot)
+        real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
+        type(CellInterface), intent(inout)              :: face
+        type(CellCenter), intent(in)                    :: cell
+        integer(KINT), intent(in)                       :: idx,rot
+        real(KREAL), allocatable, dimension(:,:)        :: vn,vt !Normal and tangential micro velocity
+        real(KREAL), allocatable, dimension(:,:)        :: H_g,B_g !Maxwellian distribution function g_{i+1/2}
+        real(KREAL), allocatable, dimension(:,:)        :: H_w,B_w !Maxwellian distribution function at the wall
+        integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
+        real(KREAL)                                     :: prim(4)
+        real(KREAL)                                     :: prim_g(4) !Primary variables of g_{i+1/2}
+        real(KREAL)                                     :: prim_w(4) !boundary condition in local frame
+        real(KREAL)                                     :: incidence,reflection
+        real(KREAL)                                     :: tau,T1,T4,T5 !Some time integration coefficients
+
+        !--------------------------------------------------
+        !prepare
+        !--------------------------------------------------
+        !allocate array
+        allocate(vn(uNum,vNum))
+        allocate(vt(uNum,vNum))
+        allocate(delta(uNum,vNum))
+        allocate(H_g(uNum,vNum))
+        allocate(B_g(uNum,vNum))
+        allocate(H_w(uNum,vNum))
+        allocate(B_w(uNum,vNum))
+
+        !Convert the micro velocity to local frame
+        vn = uSpace*face%cosx+vSpace*face%cosy
+        vt =-uSpace*face%cosy+vSpace*face%cosx
+
+        !Heaviside step function. The rotation accounts for the right wall
+        delta = (sign(UP,vn)*rot+1)/2
+
+        !Calculate primary variable of g_{i+1/2} in local frame
+        prim_w = LocalFrame(bc,face%cosx,face%cosy)
+        prim_g = prim_w
+        prim = GetPrimary(cell%conVars)
+        prim_g(1) = prim(1)/prim(4)*prim_w(4) !keep consistent pressure inside cell
+
+        !--------------------------------------------------
+        !Calculate collision time and some time integration terms
+        !--------------------------------------------------
+        tau = GetTau(prim)
+
+        T4 = tau*(1.0-exp(-dt/tau))
+        T5 = -tau*dt*exp(-dt/tau)+tau*T4
+        T1 = dt-T4
+
+        !--------------------------------------------------
+        !Calculate wall density and Maxwellian distribution
+        !--------------------------------------------------
+        call DiscreteMaxwell(H_g,B_g,vn,vt,prim_g)
+
+        incidence = T1*sum(weight*vn*H_g*(1-delta))&
+                    +T4*sum(weight*vn*cell%h*(1-delta))-T5*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
+        reflection = dt*(prim_w(4)/PI)*sum(weight*vn*exp(-prim_w(4)*((vn-prim_w(2))**2+(vt-prim_w(3))**2))*delta)
+        prim_w(1) = -incidence/reflection
+
+        call DiscreteMaxwell(H_w,B_w,vn,vt,prim_w)
+
+        !--------------------------------------------------
+        !Calculate flux
+        !--------------------------------------------------
+        face%flux(1) = dt*sum(weight*vn*H_w*delta)+T1*sum(weight*vn*H_g*(1-delta))+T4*sum(weight*vn*cell%h*(1-delta))-T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(2) = dt*sum(weight*vn*vn*H_w*delta)&
+                        +T1*sum(weight*vn*vn*H_g*(1-delta))+T4*sum(weight*vn*vn*cell%h*(1-delta))-T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(3) = dt*sum(weight*vn*vt*H_w*delta)&
+                        +T1*sum(weight*vn*vt*H_g*(1-delta))+T4*sum(weight*vt*vn*cell%h*(1-delta))-T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(4) = dt*sum(weight*vn*((vn**2+vt**2)*H_w+B_w)*delta)+T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_g+B_g)*(1-delta))&
+                        +T4*0.5*(sum(weight*vn*(vn**2+vt**2)*cell%h*(1-delta))+sum(weight*vn*cell%b*(1-delta)))&
+                        -T5*0.5*(sum(weight*vn**2*(vn**2+vt**2)*cell%sh(:,:,idx)*(1-delta))+sum(weight*vn**2*cell%sb(:,:,idx)*(1-delta)))
+
+        face%flux_h = dt*vn*H_w*delta+T1*vn*H_g*(1-delta)+T4*vn*cell%h*(1-delta)-T5*vn**2*cell%sh(:,:,idx)*(1-delta)
+        face%flux_b = dt*vn*B_w*delta+T1*vn*B_g*(1-delta)+T4*vn*cell%b*(1-delta)-T5*vn**2*cell%sb(:,:,idx)*(1-delta)
+
+        !--------------------------------------------------
+        !Final flux
+        !--------------------------------------------------
+        !Convert to global frame
+        
+        face%flux = GlobalFrame(face%flux,face%cosx,face%cosy)
+
+        !Total flux
+        face%flux = face%length*face%flux
+        face%flux_h = face%length*face%flux_h
+        face%flux_b = face%length*face%flux_b
+        
+        !--------------------------------------------------
+        !Aftermath
+        !--------------------------------------------------
+        !Deallocate array
+        deallocate(vn)
+        deallocate(vt)
+        deallocate(delta)
+        deallocate(H_g)
+        deallocate(B_g)
+        deallocate(H_w)
+        deallocate(B_w)
+    end subroutine MultiscaleFluxBoundary
 
     !--------------------------------------------------
     !>Calculate micro slope of Maxwellian distribution
@@ -1768,7 +1905,7 @@ program Cavity
             write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
         end if
 
-        if (mod(iter,500)==0) then
+        if (mod(iter,100)==1) then
             call Output()
         end if
 
