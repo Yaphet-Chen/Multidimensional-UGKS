@@ -156,7 +156,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 21, Y_NUM = 21 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 31, Y_NUM = 31 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -788,6 +788,7 @@ contains
         type(CellCenter), intent(in)                    :: cell
         integer(KINT), intent(in)                       :: idx,rot
         real(KREAL), allocatable, dimension(:,:)        :: vn,vt !Normal and tangential micro velocity
+        real(KREAL), allocatable, dimension(:,:)        :: h,b !Reduced non-equlibrium distribution function at interface
         real(KREAL), allocatable, dimension(:,:)        :: H_g,B_g !Maxwellian distribution function g_{i+1/2}
         real(KREAL), allocatable, dimension(:,:)        :: H_w,B_w !Maxwellian distribution function at the wall
         integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
@@ -804,6 +805,8 @@ contains
         allocate(vn(uNum,vNum))
         allocate(vt(uNum,vNum))
         allocate(delta(uNum,vNum))
+        allocate(h(uNum,vNum))
+        allocate(b(uNum,vNum))
         allocate(H_g(uNum,vNum))
         allocate(B_g(uNum,vNum))
         allocate(H_w(uNum,vNum))
@@ -815,6 +818,12 @@ contains
 
         !Heaviside step function. The rotation accounts for the right wall
         delta = (sign(UP,vn)*rot+1)/2
+
+        !--------------------------------------------------
+        !Reconstruct non-equlibrium distribution at interface
+        !--------------------------------------------------
+        h = cell%h-rot*0.5*cell%length(idx)*cell%sh(:,:,idx)
+        b = cell%b-rot*0.5*cell%length(idx)*cell%sb(:,:,idx)
 
         !Calculate primary variable of g_{i+1/2} in local frame
         prim_w = LocalFrame(bc,face%cosx,face%cosy)
@@ -837,7 +846,7 @@ contains
         call DiscreteMaxwell(H_g,B_g,vn,vt,prim_g)
 
         incidence = T1*sum(weight*vn*H_g*(1-delta))&
-                    +T4*sum(weight*vn*cell%h*(1-delta))-T5*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
+                    +T4*sum(weight*vn*h*(1-delta))-T5*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
         reflection = dt*(prim_w(4)/PI)*sum(weight*vn*exp(-prim_w(4)*((vn-prim_w(2))**2+(vt-prim_w(3))**2))*delta)
         prim_w(1) = -incidence/reflection
 
@@ -846,17 +855,17 @@ contains
         !--------------------------------------------------
         !Calculate flux
         !--------------------------------------------------
-        face%flux(1) = dt*sum(weight*vn*H_w*delta)+T1*sum(weight*vn*H_g*(1-delta))+T4*sum(weight*vn*cell%h*(1-delta))-T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(1) = dt*sum(weight*vn*H_w*delta)+T1*sum(weight*vn*H_g*(1-delta))+T4*sum(weight*vn*h*(1-delta))-T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(2) = dt*sum(weight*vn*vn*H_w*delta)&
-                        +T1*sum(weight*vn*vn*H_g*(1-delta))+T4*sum(weight*vn*vn*cell%h*(1-delta))-T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
+                        +T1*sum(weight*vn*vn*H_g*(1-delta))+T4*sum(weight*vn*vn*h*(1-delta))-T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(3) = dt*sum(weight*vn*vt*H_w*delta)&
-                        +T1*sum(weight*vn*vt*H_g*(1-delta))+T4*sum(weight*vt*vn*cell%h*(1-delta))-T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
+                        +T1*sum(weight*vn*vt*H_g*(1-delta))+T4*sum(weight*vt*vn*h*(1-delta))-T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(4) = dt*0.5*sum(weight*vn*((vn**2+vt**2)*H_w+B_w)*delta)+T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_g+B_g)*(1-delta))&
-                        +T4*0.5*(sum(weight*vn*(vn**2+vt**2)*cell%h*(1-delta))+sum(weight*vn*cell%b*(1-delta)))&
+                        +T4*0.5*(sum(weight*vn*(vn**2+vt**2)*h*(1-delta))+sum(weight*vn*b*(1-delta)))&
                         -T5*0.5*(sum(weight*vn**2*(vn**2+vt**2)*cell%sh(:,:,idx)*(1-delta))+sum(weight*vn**2*cell%sb(:,:,idx)*(1-delta)))
 
-        face%flux_h = dt*vn*H_w*delta+T1*vn*H_g*(1-delta)+T4*vn*cell%h*(1-delta)-T5*vn**2*cell%sh(:,:,idx)*(1-delta)
-        face%flux_b = dt*vn*B_w*delta+T1*vn*B_g*(1-delta)+T4*vn*cell%b*(1-delta)-T5*vn**2*cell%sb(:,:,idx)*(1-delta)
+        face%flux_h = dt*vn*H_w*delta+T1*vn*H_g*(1-delta)+T4*vn*h*(1-delta)-T5*vn**2*cell%sh(:,:,idx)*(1-delta)
+        face%flux_b = dt*vn*B_w*delta+T1*vn*B_g*(1-delta)+T4*vn*b*(1-delta)-T5*vn**2*cell%sb(:,:,idx)*(1-delta)
 
         !--------------------------------------------------
         !Final flux
@@ -877,6 +886,8 @@ contains
         deallocate(vn)
         deallocate(vt)
         deallocate(delta)
+        deallocate(h)
+        deallocate(b)
         deallocate(H_g)
         deallocate(B_g)
         deallocate(H_w)
@@ -1905,7 +1916,7 @@ program Cavity
             write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
         end if
 
-        if (mod(iter,100)==1) then
+        if (mod(iter,500)==1) then
             call Output()
         end if
 
