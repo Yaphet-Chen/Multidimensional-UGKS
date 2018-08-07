@@ -819,7 +819,7 @@ contains
         !Calculate primary variable of g_{i+1/2} in local frame
         prim_w = LocalFrame(bc,face%cosx,face%cosy)
         prim_g = prim_w
-        prim = GetPrimary(cell%conVars)
+        prim = LocalFrame(GetPrimary(cell%conVars),face%cosx,face%cosy)
         prim_g(1) = prim(1)/prim(4)*prim_w(4) !keep consistent pressure inside cell
 
         !--------------------------------------------------
@@ -851,7 +851,7 @@ contains
                         +T1*sum(weight*vn*vn*H_g*(1-delta))+T4*sum(weight*vn*vn*cell%h*(1-delta))-T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(3) = dt*sum(weight*vn*vt*H_w*delta)&
                         +T1*sum(weight*vn*vt*H_g*(1-delta))+T4*sum(weight*vt*vn*cell%h*(1-delta))-T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
-        face%flux(4) = dt*sum(weight*vn*((vn**2+vt**2)*H_w+B_w)*delta)+T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_g+B_g)*(1-delta))&
+        face%flux(4) = dt*0.5*sum(weight*vn*((vn**2+vt**2)*H_w+B_w)*delta)+T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_g+B_g)*(1-delta))&
                         +T4*0.5*(sum(weight*vn*(vn**2+vt**2)*cell%h*(1-delta))+sum(weight*vn*cell%b*(1-delta)))&
                         -T5*0.5*(sum(weight*vn**2*(vn**2+vt**2)*cell%sh(:,:,idx)*(1-delta))+sum(weight*vn**2*cell%sb(:,:,idx)*(1-delta)))
 
