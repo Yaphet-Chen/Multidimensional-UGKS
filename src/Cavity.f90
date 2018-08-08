@@ -123,10 +123,10 @@ module ControlParameters
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
-    real(KREAL), parameter                              :: CFL = 0.9 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
-    real(KREAL), parameter                              :: EPS = 1.0E-3 !Convergence criteria
+    real(KREAL), parameter                              :: EPS = 1.0E-9 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
     real(KREAL)                                         :: dt !Global time step
@@ -156,7 +156,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 31, Y_NUM = 31 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 61, Y_NUM = 61 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -430,11 +430,11 @@ contains
         !--------------------------------------------------
         !Obtain macroscopic variables
         !--------------------------------------------------
-        !Conservative variables conVars at interface
+        !Conservative variables conVars at interface at local frame
         face%conVars(1) = sum(weight*h)
         face%conVars(2) = sum(weight*vn*h)
         face%conVars(3) = sum(weight*vt*h)
-        face%conVars(4) = 0.5*(sum(weight*(vn**2+vt**2)*h)+sum(weight*b))
+        face%conVars(4) = 0.5*sum(weight*((vn**2+vt**2)*h+b))
 
         !--------------------------------------------------
         !Aftermath
@@ -473,7 +473,7 @@ contains
         real(KREAL)                                     :: b_slope(4) !Micro slope at tangential direction
         real(KREAL)                                     :: Mu(0:MNUM),MuL(0:MNUM),MuR(0:MNUM),Mv(0:MTUM),Mxi(0:2) !<u^n>,<u^n>_{>0},<u^n>_{<0},<v^m>,<\xi^l>
         real(KREAL)                                     :: Mau0(4),MauL(4),MauR(4),MauT(4) !<u\psi>,<aL*u^n*\psi>,<aR*u^n*\psi>,<A*u*\psi>
-        real(KREAL)                                     :: Mbu(4) !<b*u*v*\psi>
+        real(KREAL)                                     :: Mbv(4) !<b*u*v*\psi>
         real(KREAL)                                     :: tau !Collision time
         real(KREAL)                                     :: Mt(5) !Some time integration terms
         integer(KINT)                                   :: i,j
@@ -612,8 +612,8 @@ contains
         !Multidimension part
         !--------------------------------------------------
         !Calculate the b_slope flux related to g0
-        Mbu = Moment_auvxi(b_slope,Mu,Mv,Mxi,1,1) !<b*u*v*\psi>
-        face%flux = face%flux+Mt(2)*prim(1)*Mbu
+        Mbv = Moment_auvxi(b_slope,Mu,Mv,Mxi,1,1) !<b*u*v*\psi>
+        face%flux = face%flux+Mt(2)*prim(1)*Mbv
 
         face%flux(1) = face%flux(1)-Mt(5)*sum(weight*vn*vt*sh_t)
         face%flux(2) = face%flux(2)-Mt(5)*sum(weight*vn**2*vt*sh_t)
@@ -834,7 +834,7 @@ contains
         !--------------------------------------------------
         !Calculate collision time and some time integration terms
         !--------------------------------------------------
-        tau = GetTau(prim)
+        tau = GetTau(prim_g)
 
         T4 = tau*(1.0-exp(-dt/tau))
         T5 = -tau*dt*exp(-dt/tau)+tau*T4
@@ -861,8 +861,8 @@ contains
         face%flux(3) = dt*sum(weight*vn*vt*H_w*delta)&
                         +T1*sum(weight*vn*vt*H_g*(1-delta))+T4*sum(weight*vt*vn*h*(1-delta))-T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(4) = dt*0.5*sum(weight*vn*((vn**2+vt**2)*H_w+B_w)*delta)+T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_g+B_g)*(1-delta))&
-                        +T4*0.5*(sum(weight*vn*(vn**2+vt**2)*h*(1-delta))+sum(weight*vn*b*(1-delta)))&
-                        -T5*0.5*(sum(weight*vn**2*(vn**2+vt**2)*cell%sh(:,:,idx)*(1-delta))+sum(weight*vn**2*cell%sb(:,:,idx)*(1-delta)))
+                        +T4*0.5*sum(weight*vn*((vn**2+vt**2)*h+b)*(1-delta))&
+                        -T5*0.5*sum(weight*vn**2*((vn**2+vt**2)*cell%sh(:,:,idx)+cell%sb(:,:,idx))*(1-delta))
 
         face%flux_h = dt*vn*H_w*delta+T1*vn*H_g*(1-delta)+T4*vn*h*(1-delta)-T5*vn**2*cell%sh(:,:,idx)*(1-delta)
         face%flux_b = dt*vn*B_w*delta+T1*vn*B_g*(1-delta)+T4*vn*b*(1-delta)-T5*vn**2*cell%sb(:,:,idx)*(1-delta)
@@ -983,12 +983,12 @@ contains
     end function Moment_uvxi
 
     !--------------------------------------------------
-    !>Calculate <a*u^\alpha*v^\beta*\psi>
+    !>Calculate <a*u^\alpha*v^\beta>
     !>@param[in] a          :micro slope of Maxwellian
     !>@param[in] Mu,Mv      :<u^\alpha>,<v^\beta>
     !>@param[in] Mxi        :<\xi^l>
     !>@param[in] alpha,beta :exponential index of u and v
-    !>@return    Moment_auvxi  :moment of <a*u^\alpha*v^\beta*\psi>
+    !>@return    Moment_auvxi  :moment of <a*u^\alpha*v^\beta>
     !--------------------------------------------------
     function Moment_auvxi(a,Mu,Mv,Mxi,alpha,beta)
         real(KREAL), intent(in)                         :: a(4)
@@ -1916,7 +1916,7 @@ program Cavity
             write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
         end if
 
-        if (mod(iter,500)==1) then
+        if (mod(iter,10000)==0) then
             call Output()
         end if
 
