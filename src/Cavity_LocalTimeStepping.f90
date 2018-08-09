@@ -188,7 +188,8 @@ module ControlParameters
     !            (i,j)               |
     !---------------------------------
     type(CellCenter)                                    :: ctr(IXMIN:IXMAX,IYMIN:IYMAX) !Cell center
-    type(CellInterface)                                 :: vface(IXMIN:IXMAX+1,IYMIN:IYMAX),hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Vertical and horizontal interfaces
+    type(CellInterface)                                 :: L_vface(IXMIN:IXMAX+1,IYMIN:IYMAX),L_hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Left vertical and horizontal interfaces
+    type(CellInterface)                                 :: R_vface(IXMIN:IXMAX+1,IYMIN:IYMAX),R_hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Right vertical and horizontal interfaces
     type(Grid)                                          :: geometry(IXMIN:IXMAX+1,IYMIN:IYMAX+1)
     real(KREAL)                                         :: dt_local(IXMIN:IXMAX,IYMIN:IYMAX) !Local time step
 
@@ -1183,7 +1184,8 @@ contains
         !$omp do
         do j=IYMIN,IYMAX
             do i=IXMIN+1,IXMAX
-                call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
+                call CalcFaceConvars(ctr(i-1,j),L_vface(i,j),ctr(i,j),IDIRC)
+                call CalcFaceConvars(ctr(i-1,j),R_vface(i,j),ctr(i,j),IDIRC)
             end do
         end do
         !$omp end do nowait
@@ -1192,7 +1194,8 @@ contains
         !$omp do
         do j=IYMIN+1,IYMAX
             do i=IXMIN,IXMAX
-                call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
+                call CalcFaceConvars(ctr(i,j-1),L_hface(i,j),ctr(i,j),JDIRC)
+                call CalcFaceConvars(ctr(i,j-1),R_hface(i,j),ctr(i,j),JDIRC)
             end do
         end do
         !$omp end do nowait
@@ -1442,16 +1445,22 @@ contains
         
         !Vertical interface
         forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
-            vface(i,j)%length = dy
-            vface(i,j)%cosx = 1.0
-            vface(i,j)%cosy = 0.0
+            L_vface(i,j)%length = dy
+            L_vface(i,j)%cosx = 1.0
+            L_vface(i,j)%cosy = 0.0
+            R_vface(i,j)%length = dy
+            R_vface(i,j)%cosx = 1.0
+            R_vface(i,j)%cosy = 0.0
         end forall
 
         !Horizontal interface
         forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = dx
-            hface(i,j)%cosx = 0.0
-            hface(i,j)%cosy = 1.0
+            L_hface(i,j)%length = dx
+            L_hface(i,j)%cosx = 0.0
+            L_hface(i,j)%cosy = 1.0
+            R_hface(i,j)%length = dx
+            R_hface(i,j)%cosx = 0.0
+            R_hface(i,j)%cosy = 1.0
         end forall
     end subroutine InitUniformMesh
 
@@ -1519,16 +1528,22 @@ contains
 
         !Vertical interface
         forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
-            vface(i,j)%length = dy(j)
-            vface(i,j)%cosx = 1.0
-            vface(i,j)%cosy = 0.0
+            L_vface(i,j)%length = dy(j)
+            L_vface(i,j)%cosx = 1.0
+            L_vface(i,j)%cosy = 0.0
+            R_vface(i,j)%length = dy(j)
+            R_vface(i,j)%cosx = 1.0
+            R_vface(i,j)%cosy = 0.0
         end forall
 
         !Horizontal interface
         forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = dx(i)
-            hface(i,j)%cosx = 0.0
-            hface(i,j)%cosy = 1.0
+            L_hface(i,j)%length = dx(i)
+            L_hface(i,j)%cosx = 0.0
+            L_hface(i,j)%cosy = 1.0
+            R_hface(i,j)%length = dx(i)
+            R_hface(i,j)%cosx = 0.0
+            R_hface(i,j)%cosy = 1.0
         end forall
     end subroutine InitRandomMesh
 
@@ -1592,16 +1607,22 @@ contains
 
         !Vertical interface
         forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
-            vface(i,j)%length = dy(j)
-            vface(i,j)%cosx = 1.0
-            vface(i,j)%cosy = 0.0
+            L_vface(i,j)%length = dy(j)
+            L_vface(i,j)%cosx = 1.0
+            L_vface(i,j)%cosy = 0.0
+            R_vface(i,j)%length = dy(j)
+            R_vface(i,j)%cosx = 1.0
+            R_vface(i,j)%cosy = 0.0
         end forall
 
         !Horizontal interface
         forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = dx(i)
-            hface(i,j)%cosx = 0.0
-            hface(i,j)%cosy = 1.0
+            L_hface(i,j)%length = dx(i)
+            L_hface(i,j)%cosx = 0.0
+            L_hface(i,j)%cosy = 1.0
+            R_hface(i,j)%length = dx(i)
+            R_hface(i,j)%cosx = 0.0
+            R_hface(i,j)%cosy = 1.0
         end forall
     end subroutine InitNonUniformMesh
 
@@ -1727,15 +1748,19 @@ contains
         !Cell interface
         do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX+1
-                allocate(vface(i,j)%flux_h(num_u,num_v))
-                allocate(vface(i,j)%flux_b(num_u,num_v))
+                allocate(L_vface(i,j)%flux_h(num_u,num_v))
+                allocate(L_vface(i,j)%flux_b(num_u,num_v))
+                allocate(R_vface(i,j)%flux_h(num_u,num_v))
+                allocate(R_vface(i,j)%flux_b(num_u,num_v))
             end do
         end do
 
         do j=IYMIN,IYMAX+1
             do i=IXMIN,IXMAX
-                allocate(hface(i,j)%flux_h(num_u,num_v))
-                allocate(hface(i,j)%flux_b(num_u,num_v))
+                allocate(L_hface(i,j)%flux_h(num_u,num_v))
+                allocate(L_hface(i,j)%flux_b(num_u,num_v))
+                allocate(R_hface(i,j)%flux_h(num_u,num_v))
+                allocate(R_hface(i,j)%flux_b(num_u,num_v))
             end do
         end do
     end subroutine InitAllocation
@@ -1794,14 +1819,18 @@ contains
         !Cell interface
         do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX+1
-                deallocate(vface(i,j)%flux_h)
-                deallocate(vface(i,j)%flux_b)
+                deallocate(L_vface(i,j)%flux_h)
+                deallocate(L_vface(i,j)%flux_b)
+                deallocate(R_vface(i,j)%flux_h)
+                deallocate(R_vface(i,j)%flux_b)
             end do
         end do
         do j=IYMIN,IYMAX+1
             do i=IXMIN,IXMAX
-                deallocate(hface(i,j)%flux_h)
-                deallocate(hface(i,j)%flux_b)
+                deallocate(L_hface(i,j)%flux_h)
+                deallocate(L_hface(i,j)%flux_b)
+                deallocate(R_hface(i,j)%flux_h)
+                deallocate(R_hface(i,j)%flux_b)
             end do
         end do
     end subroutine AfterDeallocation
