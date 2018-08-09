@@ -111,7 +111,6 @@ module ControlParameters
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
     real(KREAL), parameter                              :: CFL = 0.5 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
@@ -772,9 +771,8 @@ contains
                 !Maximum 1/dt allowed
                 tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
 
-                if (TIME_METHOD==LOCAL) then
-                    dt_local(i,j) = CFL*ctr(i,j)%area/(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3)) !Record local time step
-                end if
+                !Calculate local time step
+                dt_local(i,j) = CFL*ctr(i,j)%area/(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3)) !Record local time step
             end do
         end do
         !$omp end do
@@ -987,19 +985,38 @@ contains
         !$omp parallel
         !$omp do
         do j=IYMIN+1,IYMAX-1
-            do i=IXMIN,IXMAX+1
-                call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC,vface(i,j+1),vface(i,j-1),1) !idb=1, not boundary, full central differcence for b_slope
+            do i=IXMIN,IXMAX
+                call CalcFlux(ctr(i-1,j),L_vface(i,j),ctr(i,j),IDIRC,L_vface(i,j+1),L_vface(i,j-1),1,dt_local(i,j)) !idb=1, not boundary, full central differcence for b_slope
             end do
         end do
         !$omp end do nowait
         !$omp do
-        do i=IXMIN,IXMAX+1
-            call CalcFlux(ctr(i-1,IYMIN),vface(i,IYMIN),ctr(i,IYMIN),IDIRC,vface(i,IYMIN+1),vface(i,IYMIN),0) !idb=0, boundary, half central difference for b_slope
+        do j=IYMIN+1,IYMAX-1
+            do i=IXMIN+1,IXMAX+1
+                call CalcFlux(ctr(i-1,j),R_vface(i,j),ctr(i,j),IDIRC,R_vface(i,j+1),R_vface(i,j-1),1,dt_local(i-1,j)) !idb=1, not boundary, full central differcence for b_slope
+            end do
+        end do
+        !$omp end do nowait
+
+        !$omp do
+        do i=IXMIN,IXMAX
+            call CalcFlux(ctr(i-1,IYMIN),L_vface(i,IYMIN),ctr(i,IYMIN),IDIRC,L_vface(i,IYMIN+1),L_vface(i,IYMIN),0,dt_local(i,IYMIN)) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp do
-        do i=IXMIN,IXMAX+1
-            call CalcFlux(ctr(i-1,IYMAX),vface(i,IYMAX),ctr(i,IYMAX),IDIRC,vface(i,IYMAX),vface(i,IYMAX-1),0) !idb=0, boundary, half central difference for b_slope
+        do i=IXMIN+1,IXMAX+1
+            call CalcFlux(ctr(i-1,IYMIN),R_vface(i,IYMIN),ctr(i,IYMIN),IDIRC,R_vface(i,IYMIN+1),R_vface(i,IYMIN),0,dt_local(i-1,IYMIN)) !idb=0, boundary, half central difference for b_slope
+        end do
+        !$omp end do nowait
+
+        !$omp do
+        do i=IXMIN,IXMAX
+            call CalcFlux(ctr(i-1,IYMAX),L_vface(i,IYMAX),ctr(i,IYMAX),IDIRC,L_vface(i,IYMAX),L_vface(i,IYMAX-1),0,dt_local(i,IYMAX)) !idb=0, boundary, half central difference for b_slope
+        end do
+        !$omp end do nowait
+        !$omp do
+        do i=IXMIN+1,IXMAX+1
+            call CalcFlux(ctr(i-1,IYMAX),R_vface(i,IYMAX),ctr(i,IYMAX),IDIRC,R_vface(i,IYMAX),R_vface(i,IYMAX-1),0,dt_local(i-1,IYMAX)) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
 
@@ -1008,20 +1025,39 @@ contains
         !--------------------------------------------------
         !Inner part
         !$omp do
-        do j=IYMIN,IYMAX+1
+        do j=IYMIN,IYMAX
             do i=IXMIN+1,IXMAX-1
-                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC,hface(i+1,j),hface(i-1,j),1) !idb=1, not boundary, full central differcence for b_slope
+                call CalcFlux(ctr(i,j-1),L_hface(i,j),ctr(i,j),JDIRC,L_hface(i+1,j),L_hface(i-1,j),1,dt_local(i,j)) !idb=1, not boundary, full central differcence for b_slope
             end do
         end do
         !$omp end do nowait
         !$omp do
-        do j=IYMIN,IYMAX+1
-                call CalcFlux(ctr(IXMIN,j-1),hface(IXMIN,j),ctr(IXMIN,j),JDIRC,hface(IXMIN+1,j),hface(IXMIN,j),0) !idb=0, boundary, half central difference for b_slope
+        do j=IYMIN+1,IYMAX+1
+            do i=IXMIN+1,IXMAX-1
+                call CalcFlux(ctr(i,j-1),R_hface(i,j),ctr(i,j),JDIRC,R_hface(i+1,j),R_hface(i-1,j),1,dt_local(i,j-1)) !idb=1, not boundary, full central differcence for b_slope
+            end do
+        end do
+        !$omp end do nowait
+
+        !$omp do
+        do j=IYMIN,IYMAX
+                call CalcFlux(ctr(IXMIN,j-1),L_hface(IXMIN,j),ctr(IXMIN,j),JDIRC,L_hface(IXMIN+1,j),L_hface(IXMIN,j),0,dt_local(IXMIN,j)) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp do
-        do j=IYMIN,IYMAX+1
-                call CalcFlux(ctr(IXMAX,j-1),hface(IXMAX,j),ctr(IXMAX,j),JDIRC,hface(IXMAX,j),hface(IXMAX-1,j),0) !idb=0, boundary, half central difference for b_slope
+        do j=IYMIN+1,IYMAX+1
+                call CalcFlux(ctr(IXMIN,j-1),R_hface(IXMIN,j),ctr(IXMIN,j),JDIRC,R_hface(IXMIN+1,j),R_hface(IXMIN,j),0,dt_local(IXMIN,j-1)) !idb=0, boundary, half central difference for b_slope
+        end do
+        !$omp end do nowait
+
+        !$omp do
+        do j=IYMIN,IYMAX
+                call CalcFlux(ctr(IXMAX,j-1),L_hface(IXMAX,j),ctr(IXMAX,j),JDIRC,L_hface(IXMAX,j),L_hface(IXMAX-1,j),0,dt_local(IXMAX,j)) !idb=0, boundary, half central difference for b_slope
+        end do
+        !$omp end do nowait
+        !$omp do
+        do j=IYMIN+1,IYMAX+1
+                call CalcFlux(ctr(IXMAX,j-1),R_hface(IXMAX,j),ctr(IXMAX,j),JDIRC,R_hface(IXMAX,j),R_hface(IXMAX-1,j),0,dt_local(IXMAX,j-1)) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp end parallel
@@ -1066,7 +1102,7 @@ contains
                 !--------------------------------------------------
                 !Update conVars^{n+1} and Calculate H^{n+1},B^{n+1},\tau^{n+1}
                 !--------------------------------------------------
-                ctr(i,j)%conVars = ctr(i,j)%conVars+(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with global time step
+                ctr(i,j)%conVars = ctr(i,j)%conVars+(L_vface(i,j)%flux-R_vface(i+1,j)%flux+L_hface(i,j)%flux-R_hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with global time step
                 
                 prim = GetPrimary(ctr(i,j)%conVars)
                 call DiscreteMaxwell(H,B,uSpace,vSpace,prim)
@@ -1097,9 +1133,9 @@ contains
                 !--------------------------------------------------
                 !Update distribution function
                 !--------------------------------------------------
-                ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
+                ctr(i,j)%h = (ctr(i,j)%h+(L_vface(i,j)%flux_h-R_vface(i+1,j)%flux_h+L_hface(i,j)%flux_h-R_hface(i,j+1)%flux_h)/ctr(i,j)%area+&
                                     0.5*dt_local(i,j)*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
-                ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
+                ctr(i,j)%b = (ctr(i,j)%b+(L_vface(i,j)%flux_b-R_vface(i+1,j)%flux_b+L_hface(i,j)%flux_b-R_hface(i,j+1)%flux_b)/ctr(i,j)%area+&
                                     0.5*dt_local(i,j)*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
             end do
         end do
@@ -1612,7 +1648,7 @@ program BoundaryLayer_LocalTimeStepping
             close(RESFILE)
         end if
 
-        if (mod(iter,2000)==0) then
+        if (mod(iter,100)==0) then
             call Output()
         end if
 
