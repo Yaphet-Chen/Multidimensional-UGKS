@@ -35,10 +35,6 @@ module ConstantVariables
     integer(KINT), parameter                            :: NEWTON = 0 !Newton–Cotes
     integer(KINT), parameter                            :: GAUSS = 1 !Gauss-Hermite
 
-    !Time step method
-    integer(KINT), parameter                            :: GLOBAL = 0 !Global time step
-    integer(KINT), parameter                            :: LOCAL = 1 !Local time step
-
     !Direction
     integer(KINT), parameter                            :: IDIRC = 1 !I direction
     integer(KINT), parameter                            :: JDIRC = 2 !J direction
@@ -121,7 +117,7 @@ module ControlParameters
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
-    real(KREAL)                                         :: dt !Global time step
+    real(KREAL)                                         :: dt_global !Global time step
     real(KREAL)                                         :: res(4) !Residual
     
     !Output control
@@ -178,7 +174,8 @@ module ControlParameters
     !            (i,j)               |
     !---------------------------------
     type(CellCenter)                                    :: ctr(IXMIN-GHOST:IXMAX+GHOST,IYMIN-GHOST:IYMAX+GHOST) !Cell center
-    type(CellInterface)                                 :: vface(IXMIN:IXMAX+1,IYMIN:IYMAX),hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Vertical and horizontal interfaces
+    type(CellInterface)                                 :: L_vface(IXMIN:IXMAX+1,IYMIN:IYMAX),L_hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Left vertical and horizontal interfaces
+    type(CellInterface)                                 :: R_vface(IXMIN:IXMAX+1,IYMIN:IYMAX),R_hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Right vertical and horizontal interfaces
     type(Grid)                                          :: geometry(IXMIN:IXMAX+1,IYMIN:IYMAX+1)
     real(KREAL)                                         :: dt_local(IXMIN:IXMAX,IYMIN:IYMAX) !Local time step
 end module ControlParameters
@@ -428,11 +425,12 @@ contains
     !>@param[in]    rightCell :cell right to the target interface
     !>@param[in]    idx       :index indicating i or j direction
     !--------------------------------------------------
-    subroutine CalcFlux(leftCell,face,rightCell,idx,face_U,face_D,idb)
+    subroutine CalcFlux(leftCell,face,rightCell,idx,face_U,face_D,idb,dt)
         type(CellCenter), intent(in)                    :: leftCell,rightCell
         type(CellInterface), intent(inout)              :: face
         type(CellInterface), intent(in)                 :: face_U,face_D !Upper and Lower interface
         integer(KINT), intent(in)                       :: idx,idb !indicator for direction and boundary
+        real(KREAL), intent(in)                         :: dt !Local time
         real(KREAL), allocatable, dimension(:,:)        :: vn,vt !normal and tangential micro velocity
         real(KREAL), allocatable, dimension(:,:)        :: h,b !Distribution function at the interface
         real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function
@@ -783,7 +781,7 @@ contains
         !$omp end parallel
         
         !Time step
-        dt = CFL/tMax
+        dt_global = CFL/tMax
     end subroutine TimeStep
 
     !--------------------------------------------------
@@ -962,7 +960,8 @@ contains
         !$omp do
         do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX+1
-                call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
+                call CalcFaceConvars(ctr(i-1,j),L_vface(i,j),ctr(i,j),IDIRC)
+                call CalcFaceConvars(ctr(i-1,j),R_vface(i,j),ctr(i,j),IDIRC)
             end do
         end do
         !$omp end do nowait
@@ -971,7 +970,8 @@ contains
         !$omp do
         do j=IYMIN,IYMAX+1
             do i=IXMIN,IXMAX
-                call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
+                call CalcFaceConvars(ctr(i,j-1),L_hface(i,j),ctr(i,j),JDIRC)
+                call CalcFaceConvars(ctr(i,j-1),R_hface(i,j),ctr(i,j),JDIRC)
             end do
         end do
         !$omp end do nowait
@@ -1066,14 +1066,8 @@ contains
                 !--------------------------------------------------
                 !Update conVars^{n+1} and Calculate H^{n+1},B^{n+1},\tau^{n+1}
                 !--------------------------------------------------
-                if (TIME_METHOD==GLOBAL) then
-                    ctr(i,j)%conVars = ctr(i,j)%conVars+(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with global time step
-                elseif (TIME_METHOD==LOCAL) then
-                    ctr(i,j)%conVars = ctr(i,j)%conVars+dt_local(i,j)/dt*(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with local time step
-                else
-                    stop "Error in TIME_METHOD!"
-                end if
-
+                ctr(i,j)%conVars = ctr(i,j)%conVars+(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with global time step
+                
                 prim = GetPrimary(ctr(i,j)%conVars)
                 call DiscreteMaxwell(H,B,uSpace,vSpace,prim)
                 tau = GetTau(prim)
@@ -1103,24 +1097,15 @@ contains
                 !--------------------------------------------------
                 !Update distribution function
                 !--------------------------------------------------
-                if (TIME_METHOD==GLOBAL) then
-                    ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
-                                        0.5*dt*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt/tau)
-                    ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
-                                        0.5*dt*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt/tau)
-                elseif (TIME_METHOD==LOCAL) then
-                    ctr(i,j)%h = (ctr(i,j)%h+dt_local(i,j)/dt*(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
-                                        0.5*dt_local(i,j)*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
-                    ctr(i,j)%b = (ctr(i,j)%b+dt_local(i,j)/dt*(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
-                                        0.5*dt_local(i,j)*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
-                else
-                    stop "Error in TIME_METHOD!"
-                end if
+                ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
+                                    0.5*dt_local(i,j)*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
+                ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
+                                    0.5*dt_local(i,j)*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
             end do
         end do
 
         !Calculate final residual
-        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)/dt
+        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)/dt_global
         
         !Deallocate arrays
         deallocate(H_old)
@@ -1255,21 +1240,30 @@ contains
 
         !Vertical interface
         forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
-            vface(i,j)%length = DY_MIN*RY_U**(j-1)
-            vface(i,j)%cosx = 1.0
-            vface(i,j)%cosy = 0.0
+            L_vface(i,j)%length = DY_MIN*RY_U**(j-1)
+            L_vface(i,j)%cosx = 1.0
+            L_vface(i,j)%cosy = 0.0
+            R_vface(i,j)%length = DY_MIN*RY_U**(j-1)
+            R_vface(i,j)%cosx = 1.0
+            R_vface(i,j)%cosy = 0.0
         end forall
 
         !Horizontal interface
         forall(i=1:IXMAX,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = DX_MIN*RX_R**(i-1)
-            hface(i,j)%cosx = 0.0
-            hface(i,j)%cosy = 1.0
+            L_hface(i,j)%length = DX_MIN*RX_R**(i-1)
+            L_hface(i,j)%cosx = 0.0
+            L_hface(i,j)%cosy = 1.0
+            R_hface(i,j)%length = DX_MIN*RX_R**(i-1)
+            R_hface(i,j)%cosx = 0.0
+            R_hface(i,j)%cosy = 1.0
         end forall
         forall(i=IXMIN:0,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = DX_MIN*RX_L**(-i)
-            hface(i,j)%cosx = 0.0
-            hface(i,j)%cosy = 1.0
+            L_hface(i,j)%length = DX_MIN*RX_L**(-i)
+            L_hface(i,j)%cosx = 0.0
+            L_hface(i,j)%cosy = 1.0
+            R_hface(i,j)%length = DX_MIN*RX_L**(-i)
+            R_hface(i,j)%cosx = 0.0
+            R_hface(i,j)%cosy = 1.0
         end forall
     end subroutine InitNonUniformMesh
 
@@ -1406,15 +1400,19 @@ contains
         !Cell interface
         do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX+1
-                allocate(vface(i,j)%flux_h(num_u,num_v))
-                allocate(vface(i,j)%flux_b(num_u,num_v))
+                allocate(L_vface(i,j)%flux_h(num_u,num_v))
+                allocate(L_vface(i,j)%flux_b(num_u,num_v))
+                allocate(R_vface(i,j)%flux_h(num_u,num_v))
+                allocate(R_vface(i,j)%flux_b(num_u,num_v))
             end do
         end do
 
         do j=IYMIN,IYMAX+1
             do i=IXMIN,IXMAX
-                allocate(hface(i,j)%flux_h(num_u,num_v))
-                allocate(hface(i,j)%flux_b(num_u,num_v))
+                allocate(L_hface(i,j)%flux_h(num_u,num_v))
+                allocate(L_hface(i,j)%flux_b(num_u,num_v))
+                allocate(R_hface(i,j)%flux_h(num_u,num_v))
+                allocate(R_hface(i,j)%flux_b(num_u,num_v))
             end do
         end do
     end subroutine InitAllocation
@@ -1475,14 +1473,18 @@ contains
         !Cell interface
         do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX+1
-                deallocate(vface(i,j)%flux_h)
-                deallocate(vface(i,j)%flux_b)
+                deallocate(L_vface(i,j)%flux_h)
+                deallocate(L_vface(i,j)%flux_b)
+                deallocate(R_vface(i,j)%flux_h)
+                deallocate(R_vface(i,j)%flux_b)
             end do
         end do
         do j=IYMIN,IYMAX+1
             do i=IXMIN,IXMAX
-                deallocate(hface(i,j)%flux_h)
-                deallocate(hface(i,j)%flux_b)
+                deallocate(L_hface(i,j)%flux_h)
+                deallocate(L_hface(i,j)%flux_b)
+                deallocate(R_hface(i,j)%flux_h)
+                deallocate(R_hface(i,j)%flux_b)
             end do
         end do
     end subroutine AfterDeallocation
@@ -1561,7 +1563,7 @@ end module Writer
 !--------------------------------------------------
 !>Main program
 !--------------------------------------------------
-program BoundaryLayer
+program BoundaryLayer_LocalTimeStepping
     use Initialization
     use Solver
     use Writer
@@ -1600,9 +1602,9 @@ program BoundaryLayer
 
         !Log the iteration situation every 10 iterations
         if (mod(iter,10)==0) then
-            write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
+            write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt_global
             write(*,"(A18,4E15.7)") "res:",res
-            write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
+            write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt_global
 
             !Output the residual curve
             open(unit=RESFILE,file=RESFILENAME//trim(fileName)//'_residual.dat',status="old",action="write",position="append") !Open residual file
@@ -1615,7 +1617,7 @@ program BoundaryLayer
         end if
 
         iter = iter+1
-        simTime = simTime+dt
+        simTime = simTime+dt_global
     end do
 
     !End timer
@@ -1630,4 +1632,4 @@ program BoundaryLayer
 
     !Aftermath
     call AfterDeallocation()
-end program BoundaryLayer
+end program BoundaryLayer_LocalTimeStepping
