@@ -1898,7 +1898,7 @@ end module Writer
 !--------------------------------------------------
 !>Main program
 !--------------------------------------------------
-program Cavity
+program Cavity_LocalTimeStepping
     use Initialization
     use Solver
     use Writer
@@ -1946,7 +1946,7 @@ program Cavity
             close(RESFILE)
         end if
 
-        if (mod(iter,50)==0) then
+        if (mod(iter,1000)==0) then
             call Output()
         end if
 
@@ -1966,4 +1966,4 @@ program Cavity
 
     !Aftermath
     call AfterDeallocation()
-end program Cavity
+end program Cavity_LocalTimeStepping
