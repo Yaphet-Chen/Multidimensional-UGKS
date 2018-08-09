@@ -37,10 +37,6 @@ module ConstantVariables
     integer(KINT), parameter                            :: NEWTON = 0 !Newton–Cotes
     integer(KINT), parameter                            :: GAUSS = 1 !Gauss-Hermite
 
-    !Time step method
-    integer(KINT), parameter                            :: GLOBAL = 0 !Global time step
-    integer(KINT), parameter                            :: LOCAL = 1 !Local time step
-
     !Boundary type
     integer(KINT), parameter                            :: KINETIC = 0 !Kinetic boundary condition
     integer(KINT), parameter                            :: MULTISCALE = 1 !Multiscale boundary condition
@@ -118,18 +114,17 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
-    integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
+    integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
-    integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
-    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
+    integer(KINT), parameter                            :: BOUNDARY_TYPE = KINETIC
+    real(KREAL), parameter                              :: CFL = 0.3 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
-    real(KREAL), parameter                              :: EPS = 1.0E-9 !Convergence criteria
+    real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
-    real(KREAL)                                         :: dt !Global time step
+    real(KREAL)                                         :: dt_global !Global time step 
     real(KREAL)                                         :: res(4) !Residual
     
     !Output control
@@ -457,11 +452,12 @@ contains
     !>@param[in]    rightCell :cell right to the target interface
     !>@param[in]    idx       :index indicating i or j direction
     !--------------------------------------------------
-    subroutine CalcFlux(leftCell,face,rightCell,idx,face_U,face_D,idb)
+    subroutine CalcFlux(leftCell,face,rightCell,idx,face_U,face_D,idb,dt)
         type(CellCenter), intent(in)                    :: leftCell,rightCell
         type(CellInterface), intent(inout)              :: face
         type(CellInterface), intent(in)                 :: face_U,face_D !Upper and Lower interface
         integer(KINT), intent(in)                       :: idx,idb !indicator for direction and boundary
+        real(KREAL), intent(in)                         :: dt !Local time
         real(KREAL), allocatable, dimension(:,:)        :: vn,vt !normal and tangential micro velocity
         real(KREAL), allocatable, dimension(:,:)        :: h,b !Distribution function at the interface
         real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function
@@ -664,16 +660,17 @@ contains
     !>@param[in]    idx  :index indicating i or j direction
     !>@param[in]    rot  :indicating rotation
     !--------------------------------------------------
-    subroutine CalcFluxBoundary(bc,face,cell,idx,rot)
+    subroutine CalcFluxBoundary(bc,face,cell,idx,rot,dt)
         real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
         type(CellInterface), intent(inout)              :: face
         type(CellCenter), intent(in)                    :: cell
         integer(KINT), intent(in)                       :: idx,rot
+        real(KREAL), intent(in)                         :: dt !Local time
 
         if (BOUNDARY_TYPE==KINETIC) then
-            call KineticFluxBoundary(bc,face,cell,idx,rot)
+            call KineticFluxBoundary(bc,face,cell,idx,rot,dt)
         elseif (BOUNDARY_TYPE==MULTISCALE) then
-            call MultiscaleFluxBoundary(bc,face,cell,idx,rot)
+            call MultiscaleFluxBoundary(bc,face,cell,idx,rot,dt)
         else
             stop "Error in BOUNDARY_TYPE!"
         end if
@@ -687,11 +684,12 @@ contains
     !>@param[in]    idx  :index indicating i or j direction
     !>@param[in]    rot  :indicating rotation
     !--------------------------------------------------
-    subroutine KineticFluxBoundary(bc,face,cell,idx,rot)
+    subroutine KineticFluxBoundary(bc,face,cell,idx,rot,dt)
         real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
         type(CellInterface), intent(inout)              :: face
         type(CellCenter), intent(in)                    :: cell
         integer(KINT), intent(in)                       :: idx,rot
+        real(KREAL), intent(in)                         :: dt !Local time
         real(KREAL), allocatable, dimension(:,:)        :: vn,vt !Normal and tangential micro velocity
         real(KREAL), allocatable, dimension(:,:)        :: h,b !Reduced distribution function
         real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function at the wall
@@ -785,11 +783,12 @@ contains
     !>@param[in]    idx  :index indicating i or j direction
     !>@param[in]    rot  :indicating rotation
     !--------------------------------------------------
-    subroutine MultiscaleFluxBoundary(bc,face,cell,idx,rot)
+    subroutine MultiscaleFluxBoundary(bc,face,cell,idx,rot,dt)
         real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
         type(CellInterface), intent(inout)              :: face
         type(CellCenter), intent(in)                    :: cell
         integer(KINT), intent(in)                       :: idx,rot
+        real(KREAL), intent(in)                         :: dt !Local time
         real(KREAL), allocatable, dimension(:,:)        :: vn,vt !Normal and tangential micro velocity
         real(KREAL), allocatable, dimension(:,:)        :: h,b !Reduced non-equlibrium distribution function at interface
         real(KREAL), allocatable, dimension(:,:)        :: H_g,B_g !Maxwellian distribution function g_{i+1/2}
@@ -1045,16 +1044,15 @@ contains
                 !Maximum 1/dt allowed
                 tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
 
-                if (TIME_METHOD==LOCAL) then
-                    dt_local(i,j) = CFL*ctr(i,j)%area/(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3)) !Record local time step
-                end if
+                !Calculate local time step
+                dt_local(i,j) = CFL*ctr(i,j)%area/(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3)) !Record local time step
             end do
         end do
         !$omp end do
         !$omp end parallel
         
         !Time step
-        dt = CFL/tMax
+        dt_global = CFL/tMax
     end subroutine TimeStep
 
     !--------------------------------------------------
@@ -1212,8 +1210,8 @@ contains
         !$omp parallel
         !$omp do
         do j=IYMIN,IYMAX
-            call CalcFluxBoundary(BC_W,vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN) !RN means no frame rotation
-            call CalcFluxBoundary(BC_E,vface(IXMAX+1,j),ctr(IXMAX,j),IDIRC,RY) !RY means with frame rotation
+            call CalcFluxBoundary(BC_W,L_vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN,dt_local(IXMIN,j)) !RN means no frame rotation
+            call CalcFluxBoundary(BC_E,R_vface(IXMAX+1,j),ctr(IXMAX,j),IDIRC,RY,dt_local(IXMAX,j)) !RY means with frame rotation
         end do
         !$omp end do nowait
 
@@ -1221,18 +1219,21 @@ contains
         !$omp do
         do j=IYMIN+1,IYMAX-1
             do i=IXMIN+1,IXMAX
-                call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC,vface(i,j+1),vface(i,j-1),1) !idb=1, not boundary, full central differcence for b_slope
+                call CalcFlux(ctr(i-1,j),L_vface(i,j),ctr(i,j),IDIRC,L_vface(i,j+1),L_vface(i,j-1),1,dt_local(i,j)) !idb=1, not boundary, full central differcence for b_slope
+                call CalcFlux(ctr(i-1,j),R_vface(i,j),ctr(i,j),IDIRC,R_vface(i,j+1),R_vface(i,j-1),1,dt_local(i-1,j)) !idb=1, not boundary, full central differcence for b_slope
             end do
         end do
         !$omp end do nowait
         !$omp do
         do i=IXMIN+1,IXMAX
-            call CalcFlux(ctr(i-1,IYMIN),vface(i,IYMIN),ctr(i,IYMIN),IDIRC,vface(i,IYMIN+1),vface(i,IYMIN),0) !idb=0, boundary, half central difference for b_slope
+            call CalcFlux(ctr(i-1,IYMIN),L_vface(i,IYMIN),ctr(i,IYMIN),IDIRC,L_vface(i,IYMIN+1),L_vface(i,IYMIN),0,dt_local(i,IYMIN)) !idb=0, boundary, half central difference for b_slope
+            call CalcFlux(ctr(i-1,IYMIN),R_vface(i,IYMIN),ctr(i,IYMIN),IDIRC,R_vface(i,IYMIN+1),R_vface(i,IYMIN),0,dt_local(i-1,IYMIN)) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp do
         do i=IXMIN+1,IXMAX
-            call CalcFlux(ctr(i-1,IYMAX),vface(i,IYMAX),ctr(i,IYMAX),IDIRC,vface(i,IYMAX),vface(i,IYMAX-1),0) !idb=0, boundary, half central difference for b_slope
+            call CalcFlux(ctr(i-1,IYMAX),L_vface(i,IYMAX),ctr(i,IYMAX),IDIRC,L_vface(i,IYMAX),L_vface(i,IYMAX-1),0,dt_local(i,IYMAX)) !idb=0, boundary, half central difference for b_slope
+            call CalcFlux(ctr(i-1,IYMAX),R_vface(i,IYMAX),ctr(i,IYMAX),IDIRC,R_vface(i,IYMAX),R_vface(i,IYMAX-1),0,dt_local(i-1,IYMAX)) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
 
@@ -1242,8 +1243,8 @@ contains
         !Boundary part
         !$omp do
         do i=IXMIN,IXMAX
-            call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN) !RN means no frame rotation
-            call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY) !RY means with frame rotation 
+            call CalcFluxBoundary(BC_S,L_hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN,dt_local(i,IYMIN)) !RN means no frame rotation
+            call CalcFluxBoundary(BC_N,R_hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY,dt_local(i,IYMAX)) !RY means with frame rotation 
         end do
         !$omp end do nowait
 
@@ -1251,18 +1252,21 @@ contains
         !$omp do
         do j=IYMIN+1,IYMAX
             do i=IXMIN+1,IXMAX-1
-                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC,hface(i+1,j),hface(i-1,j),1) !idb=1, not boundary, full central differcence for b_slope
+                call CalcFlux(ctr(i,j-1),L_hface(i,j),ctr(i,j),JDIRC,L_hface(i+1,j),L_hface(i-1,j),1,dt_local(i,j)) !idb=1, not boundary, full central differcence for b_slope
+                call CalcFlux(ctr(i,j-1),R_hface(i,j),ctr(i,j),JDIRC,R_hface(i+1,j),R_hface(i-1,j),1,dt_local(i,j-1)) !idb=1, not boundary, full central differcence for b_slope
             end do
         end do
         !$omp end do nowait
         !$omp do
         do j=IYMIN+1,IYMAX
-                call CalcFlux(ctr(IXMIN,j-1),hface(IXMIN,j),ctr(IXMIN,j),JDIRC,hface(IXMIN+1,j),hface(IXMIN,j),0) !idb=0, boundary, half central difference for b_slope
+            call CalcFlux(ctr(IXMIN,j-1),L_hface(IXMIN,j),ctr(IXMIN,j),JDIRC,L_hface(IXMIN+1,j),L_hface(IXMIN,j),0,dt_local(IXMIN,j)) !idb=0, boundary, half central difference for b_slope
+            call CalcFlux(ctr(IXMIN,j-1),R_hface(IXMIN,j),ctr(IXMIN,j),JDIRC,R_hface(IXMIN+1,j),R_hface(IXMIN,j),0,dt_local(IXMIN,j-1)) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp do
         do j=IYMIN+1,IYMAX
-                call CalcFlux(ctr(IXMAX,j-1),hface(IXMAX,j),ctr(IXMAX,j),JDIRC,hface(IXMAX,j),hface(IXMAX-1,j),0) !idb=0, boundary, half central difference for b_slope
+            call CalcFlux(ctr(IXMAX,j-1),L_hface(IXMAX,j),ctr(IXMAX,j),JDIRC,L_hface(IXMAX,j),L_hface(IXMAX-1,j),0,dt_local(IXMAX,j)) !idb=0, boundary, half central difference for b_slope
+            call CalcFlux(ctr(IXMAX,j-1),R_hface(IXMAX,j),ctr(IXMAX,j),JDIRC,R_hface(IXMAX,j),R_hface(IXMAX-1,j),0,dt_local(IXMAX,j-1)) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp end parallel
@@ -1307,13 +1311,7 @@ contains
                 !--------------------------------------------------
                 !Update conVars^{n+1} and Calculate H^{n+1},B^{n+1},\tau^{n+1}
                 !--------------------------------------------------
-                if (TIME_METHOD==GLOBAL) then
-                    ctr(i,j)%conVars = ctr(i,j)%conVars+(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with global time step
-                elseif (TIME_METHOD==LOCAL) then
-                    ctr(i,j)%conVars = ctr(i,j)%conVars+dt_local(i,j)/dt*(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with local time step
-                else
-                    stop "Error in TIME_METHOD!"
-                end if
+                ctr(i,j)%conVars = ctr(i,j)%conVars+(L_vface(i,j)%flux-R_vface(i+1,j)%flux+L_hface(i,j)%flux-R_hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with global time step  
 
                 prim = GetPrimary(ctr(i,j)%conVars)
                 call DiscreteMaxwell(H,B,uSpace,vSpace,prim)
@@ -1344,24 +1342,15 @@ contains
                 !--------------------------------------------------
                 !Update distribution function
                 !--------------------------------------------------
-                if (TIME_METHOD==GLOBAL) then
-                    ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
-                                        0.5*dt*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt/tau)
-                    ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
-                                        0.5*dt*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt/tau)
-                elseif (TIME_METHOD==LOCAL) then
-                    ctr(i,j)%h = (ctr(i,j)%h+dt_local(i,j)/dt*(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
-                                        0.5*dt_local(i,j)*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
-                    ctr(i,j)%b = (ctr(i,j)%b+dt_local(i,j)/dt*(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
-                                        0.5*dt_local(i,j)*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
-                else
-                    stop "Error in TIME_METHOD!"
-                end if
+                ctr(i,j)%h = (ctr(i,j)%h+(L_vface(i,j)%flux_h-R_vface(i+1,j)%flux_h+L_hface(i,j)%flux_h-R_hface(i,j+1)%flux_h)/ctr(i,j)%area+&
+                                    0.5*dt_local(i,j)*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
+                ctr(i,j)%b = (ctr(i,j)%b+(L_vface(i,j)%flux_b-R_vface(i+1,j)%flux_b+L_hface(i,j)%flux_b-R_hface(i,j+1)%flux_b)/ctr(i,j)%area+&
+                                    0.5*dt_local(i,j)*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
             end do
         end do
 
         !Calculate final residual
-        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)/dt
+        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)/dt_global
         
         !Deallocate arrays
         deallocate(H_old)
@@ -1947,9 +1936,9 @@ program Cavity
 
         !Log the iteration situation every 10 iterations
         if (mod(iter,10)==0) then
-            write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
+            write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt_global
             write(*,"(A18,4E15.7)") "res:",res
-            write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
+            write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt_global
 
             !Output the residual curve
             open(unit=RESFILE,file=RESFILENAME//trim(fileName)//'_residual.dat',status="old",action="write",position="append") !Open residual file
@@ -1957,12 +1946,12 @@ program Cavity
             close(RESFILE)
         end if
 
-        if (mod(iter,500)==0) then
+        if (mod(iter,50)==0) then
             call Output()
         end if
 
         iter = iter+1
-        simTime = simTime+dt
+        simTime = simTime+dt_global
     end do
 
     !End timer
