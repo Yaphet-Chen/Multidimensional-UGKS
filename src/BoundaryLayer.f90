@@ -127,8 +127,10 @@ module ControlParameters
     !Output control
     character(len=13), parameter                        :: HSTFILENAME = "BoundaryLayer" !History file name
     character(len=13), parameter                        :: RSTFILENAME = "BoundaryLayer" !Result file name
+    character(len=13), parameter                        :: RESFILENAME = "BoundaryLayer" !Residual file name
     integer(KINT), parameter                            :: HSTFILE = 20 !History file ID
     integer(KINT), parameter                            :: RSTFILE = 21 !Result file ID
+    integer(KINT), parameter                            :: RESFILE = 22 !Residual file ID
 
     !Gas propeties
     integer(KINT), parameter                            :: CK = 0 !Internal degree of freedom, here 1 denotes monatomic gas
@@ -1515,7 +1517,7 @@ contains
 
         !Open result file
         open(unit=RSTFILE,file=RSTFILENAME//trim(fileName)//'_'//trim(adjustl(str))//'.dat',status="replace",action="write")
-        
+
         !Write header
         write(RSTFILE,*) "VARIABLES = X, Y, Density, U, V, T, P, QX, QY"
 
@@ -1558,11 +1560,16 @@ program BoundaryLayer
     !Initialization
     call Init()
 
-    !Open file and write header
+    !Open history file and write header
     call date_and_time(DATE=date,TIME=time)
     fileName = '_'//date//'_'//time(1:6)
     open(unit=HSTFILE,file=HSTFILENAME//trim(fileName)//'.hst',status="replace",action="write") !Open history file
     write(HSTFILE,*) "VARIABLES = iter, simTime, dt" !write header
+    
+    !Open residual file and write header
+    open(unit=RESFILE,file=RESFILENAME//trim(fileName)//'_residual.dat',status="replace",action="write") !Open residual file
+    write(RESFILE,*) "VARIABLES = iter, resRho, resU, resV, resLambda" !write header
+    close(RESFILE)
 
     !Star timer
     call cpu_time(start)
@@ -1585,6 +1592,11 @@ program BoundaryLayer
             write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
             write(*,"(A18,4E15.7)") "res:",res
             write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
+
+            !Output the residual curve
+            open(unit=RESFILE,file=RESFILENAME//trim(fileName)//'_residual.dat',status="old",action="write",position="append") !Open residual file
+            write(RESFILE,"(I15,4E15.7)") iter,res
+            close(RESFILE)
         end if
 
         if (mod(iter,2000)==0) then
