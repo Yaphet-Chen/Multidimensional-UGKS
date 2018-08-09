@@ -116,7 +116,7 @@ module ControlParameters
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
-    real(KREAL), parameter                              :: CFL = 0.9 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -623,104 +623,6 @@ contains
         deallocate(H_plus)
         deallocate(B_plus)
     end subroutine CalcFlux
-    
-    !--------------------------------------------------
-    !>Calculate flux of boundary interface, assuming left wall
-    !>@param[in]    bc   :boundary condition
-    !>@param[inout] face :the boundary interface
-    !>@param[in]    cell :cell next to the boundary interface
-    !>@param[in]    idx  :index indicating i or j direction
-    !>@param[in]    rot  :indicating rotation
-    !--------------------------------------------------
-    subroutine CalcFluxBoundary(bc,face,cell,idx,rot) 
-        real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
-        type(CellInterface), intent(inout)              :: face
-        type(CellCenter), intent(in)                    :: cell
-        integer(KINT), intent(in)                       :: idx,rot
-        real(KREAL), allocatable, dimension(:,:)        :: vn,vt !Normal and tangential micro velocity
-        real(KREAL), allocatable, dimension(:,:)        :: h,b !Reduced distribution function
-        real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function at the wall
-        integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
-        real(KREAL)                                     :: prim(4) !boundary condition in local frame
-        real(KREAL)                                     :: incidence,reflection
-        !--------------------------------------------------
-        !prepare
-        !--------------------------------------------------
-        !allocate array
-        allocate(vn(uNum,vNum))
-        allocate(vt(uNum,vNum))
-        allocate(delta(uNum,vNum))
-        allocate(h(uNum,vNum))
-        allocate(b(uNum,vNum))
-        allocate(H0(uNum,vNum))
-        allocate(B0(uNum,vNum))
-
-        !Convert the micro velocity to local frame
-        vn = uSpace*face%cosx+vSpace*face%cosy
-        vt =-uSpace*face%cosy+vSpace*face%cosx
-
-        !Heaviside step function. The rotation accounts for the right wall
-        delta = (sign(UP,vn)*rot+1)/2
-
-        !Boundary condition in local frame
-        prim = LocalFrame(bc,face%cosx,face%cosy)
-
-        !--------------------------------------------------
-        !Obtain h^{in} and b^{in}, rotation accounts for the right wall
-        !--------------------------------------------------
-        h = cell%h-rot*0.5*cell%length(idx)*cell%sh(:,:,idx)
-        b = cell%b-rot*0.5*cell%length(idx)*cell%sb(:,:,idx)
-        
-        !--------------------------------------------------
-        !Calculate wall density and Maxwellian distribution
-        !--------------------------------------------------
-        incidence = sum(weight*vn*h*(1-delta))
-        reflection = (prim(4)/PI)*sum(weight*vn*exp(-prim(4)*((vn-prim(2))**2+(vt-prim(3))**2))*delta)
-
-        prim(1) = -incidence/reflection
-
-        call DiscreteMaxwell(H0,B0,vn,vt,prim)
-        
-        !--------------------------------------------------
-        !Distribution function at the boundary interface
-        !--------------------------------------------------
-        h = H0*delta+h*(1-delta)
-        b = B0*delta+b*(1-delta)
-        
-        !--------------------------------------------------
-        !Calculate flux
-        !--------------------------------------------------
-        face%flux(1) = sum(weight*vn*h)
-        face%flux(2) = sum(weight*vn*vn*h)
-        face%flux(3) = sum(weight*vn*vt*h)
-        face%flux(4) = 0.5*sum(weight*vn*((vn**2+vt**2)*h+b))
-
-        face%flux_h = vn*h
-        face%flux_b = vn*b
-
-        !--------------------------------------------------
-        !Final flux
-        !--------------------------------------------------
-        !Convert to global frame
-        face%flux = GlobalFrame(face%flux,face%cosx,face%cosy)
-
-        !Total flux
-        face%flux = dt*face%length*face%flux
-        face%flux_h = dt*face%length*face%flux_h
-        face%flux_b = dt*face%length*face%flux_b
-        
-        !--------------------------------------------------
-        !Aftermath
-        !--------------------------------------------------
-        !Deallocate array
-        deallocate(vn)
-        deallocate(vt)
-        deallocate(delta)
-        deallocate(h)
-        deallocate(b)
-        deallocate(H0)
-        deallocate(B0)
-    end subroutine CalcFluxBoundary
 
     !--------------------------------------------------
     !>Calculate micro slope of Maxwellian distribution
@@ -900,8 +802,10 @@ contains
             ! targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
             ! targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
         elseif (RECONSTRUCTION_METHOD==CENTRAL) then
-            targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
-            targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            ! targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            ! targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
+            targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
         else
             stop "Error in RECONSTRUCTION_METHOD!"
         end if
@@ -1668,13 +1572,13 @@ program BoundaryLayer
         call TimeStep() !Calculate the time step
         call Reconstruction() !Calculate the slope of distribution function
         call BottomBoundary() !Set adiabatic slip/non-slip boundary at bottom
+        call OutBoundary() !Set free stream outflow boundary at right and up
         call Evolution() !Calculate flux across the interfaces
         call Update() !Update cell averaged value
-        call OutBoundary() !Set free stream outflow boundary at right and up
 
         !Check stopping criterion
         if(all(res<EPS) .or. iter>=MAX_ITER) exit
-        if(isnan(res(1)) .or. isnan(res(4))) exit
+        ! if(isnan(res(1)) .or. isnan(res(4))) exit
 
         !Log the iteration situation every 10 iterations
         if (mod(iter,10)==0) then
