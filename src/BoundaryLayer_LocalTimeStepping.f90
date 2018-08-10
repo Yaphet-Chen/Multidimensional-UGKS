@@ -135,7 +135,7 @@ module ControlParameters
 
     !MU_REF determined by Re number
     real(KREAL), parameter                              :: MA = 0.3 !Free stream inflow Mach number
-    real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
+    real(KREAL), parameter                              :: Re = 100000 !Reynolds number in reference state
     real(KREAL), parameter                              :: MU_REF = MA*sqrt(0.5*GAMMA)/Re !Viscosity coefficient in reference state
 
     !Geometry
@@ -1648,11 +1648,11 @@ program BoundaryLayer_LocalTimeStepping
             close(RESFILE)
         end if
 
-        if (mod(iter,100)==0) then
+        if (mod(iter,5000)==0) then
             call Output()
         end if
 
-        iter = iter+1
+        iter = iter+1sw
         simTime = simTime+dt_global
     end do
 

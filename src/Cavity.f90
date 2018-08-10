@@ -123,7 +123,7 @@ module ControlParameters
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
-    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.1 !CFL number
     real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-9 !Convergence criteria
@@ -1928,7 +1928,7 @@ program Cavity
             close(RESFILE)
         end if
 
-        if (mod(iter,500)==0) then
+        if (mod(iter,10000)==0) then
             call Output()
         end if
 
