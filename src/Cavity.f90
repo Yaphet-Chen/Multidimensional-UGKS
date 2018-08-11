@@ -296,6 +296,22 @@ contains
     end function GetSoundSpeed
 
     !--------------------------------------------------
+    !>Get pressure
+    !>@param[in] h,b          :distribution function
+    !>@param[in] vn,vt        :normal and tangential velocity
+    !>@param[in] prim         :primary variables
+    !>@return    GetPressure  :pressure
+    !--------------------------------------------------
+    function GetPressure(h,b,vn,vt,prim)
+    real(KREAL), dimension(:,:), intent(in)             :: h,b
+    real(KREAL), dimension(:,:), intent(in)             :: vn,vt
+    real(KREAL), intent(in)                             :: prim(4)
+    real(KREAL)                                         :: GetPressure !pressure
+
+    GetPressure = (sum(weight*((vn-prim(2))**2+(vt-prim(3))**2)*h)+sum(weight*b))/(CK+2)
+    end function GetPressure
+
+    !--------------------------------------------------
     !>Obtain discretized Maxwellian distribution
     !>@param[out] h,b   :distribution function
     !>@param[in]  vn,vt :normal and tangential velocity
@@ -1833,7 +1849,7 @@ contains
                 prim = GetPrimary(ctr(i,j)%conVars)
                 solution(1:3,i,j) = prim(1:3) !Density,u,v
                 solution(4,i,j) = 1/prim(4) !Temperature
-                solution(5,i,j) = 0.5*solution(4,i,j)*solution(1,i,j) !Pressure
+                solution(5,i,j) = GetPressure(ctr(i,j)%h,ctr(i,j)%b,uSpace,vSpace,prim) !Pressure
                 solution(6:7,i,j) = GetHeatFlux(ctr(i,j)%h,ctr(i,j)%b,uSpace,vSpace,prim) !Heat flux
             end do
         end do
