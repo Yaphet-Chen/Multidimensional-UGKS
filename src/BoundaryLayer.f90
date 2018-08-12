@@ -689,33 +689,6 @@ contains
     end subroutine TimeStep
 
     !--------------------------------------------------
-    !>Interpolation of the boundary cell
-    !>@param[inout] targetCell    :the target boundary cell
-    !>@param[inout] leftCell      :the left cell
-    !>@param[inout] rightCell     :the right cell
-    !>@param[in]    idx           :the index indicating i or j direction
-    !--------------------------------------------------
-    subroutine InterpBoundary(leftCell,targetCell,rightCell,idx)
-        type(CellCenter), intent(inout)                 :: targetCell
-        type(CellCenter), intent(inout)                 :: leftCell,rightCell
-        integer(KINT), intent(in)                       :: idx
-
-        
-        if (RECONSTRUCTION_METHOD==LIMITER) then
-            call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
-            ! targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
-            ! targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
-        elseif (RECONSTRUCTION_METHOD==CENTRAL) then
-            ! targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
-            ! targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
-            targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
-            targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
-        else
-            stop "Error in RECONSTRUCTION_METHOD!"
-        end if
-    end subroutine InterpBoundary
-
-    !--------------------------------------------------
     !>Interpolation of the inner cells
     !>@param[in]    leftCell      :the left cell
     !>@param[inout] targetCell    :the target cell
@@ -763,19 +736,10 @@ contains
         !--------------------------------------------------
         !i direction
         !--------------------------------------------------
-        
-        !Boundary part
-        !$omp do
-        do j=IYMIN,IYMAX
-            call VanLeerLimiter(ctr(IXMIN-1,j),ctr(IXMIN,j),ctr(IXMIN+1,j),IDIRC) !Special treatment for inflow boundary condition
-            call InterpBoundary(ctr(IXMAX-1,j),ctr(IXMAX,j),ctr(IXMAX,j),IDIRC)
-        end do
-        !$omp end do nowait
-
         !Inner part
         !$omp do
         do j=IYMIN,IYMAX
-            do i=IXMIN+1,IXMAX-1
+            do i=IXMIN,IXMAX
                 call InterpInner(ctr(i-1,j),ctr(i,j),ctr(i+1,j),IDIRC)
             end do
         end do
@@ -784,20 +748,18 @@ contains
         !--------------------------------------------------
         !j direction
         !--------------------------------------------------
-
-        !Boundary part
         !$omp do
-        do i=IXMIN,IXMAX
-            call InterpBoundary(ctr(i,IYMIN),ctr(i,IYMIN),ctr(i,IYMIN+1),JDIRC)
-            call InterpBoundary(ctr(i,IYMAX-1),ctr(i,IYMAX),ctr(i,IYMAX),JDIRC)
-        end do
-        !$omp end do nowait
-
-        !$omp do
-        do j=IYMIN+1,IYMAX-1
+        do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX
                 call InterpInner(ctr(i,j-1),ctr(i,j),ctr(i,j+1),JDIRC)
             end do
+        end do
+        !$omp end do nowait
+
+        !Boundary part
+        !$omp do
+        do j=IYMIN,IYMAX
+            call VanLeerLimiter(ctr(IXMIN-1,j),ctr(IXMIN,j),ctr(IXMIN+1,j),IDIRC) !Special treatment for inflow boundary condition
         end do
         !$omp end do nowait
         !$omp end parallel
