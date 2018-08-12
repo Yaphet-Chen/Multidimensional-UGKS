@@ -122,9 +122,8 @@ module ControlParameters
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
-    integer(KINT), parameter                            :: BOUNDARY_TYPE = KINETIC
+    integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
     real(KREAL), parameter                              :: CFL = 0.5 !CFL number
-    real(KREAL), parameter                              :: MAX_TIME = 250.0 !Maximal simulation time
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-9 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -158,7 +157,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 21, Y_NUM = 21 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 31, Y_NUM = 31 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -1906,7 +1905,6 @@ program Cavity
         call Update() !Update cell averaged value
 
         !Check stopping criterion
-        ! if (simTime>=MAX_TIME .or. iter>=MAX_ITER) exit
         if(all(res<EPS) .or. iter>=MAX_ITER) exit
         ! if(isnan(res(1)) .or. isnan(res(4))) exit
 
