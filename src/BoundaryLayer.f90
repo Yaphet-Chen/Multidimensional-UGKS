@@ -425,12 +425,12 @@ contains
         !Obtain macroscopic variables
         !--------------------------------------------------
         !Conservative variables conVars at interface
-        conVars = 0.5*(LocalFrame(rightCell%conVars,face%cosx,face%cosy)+LocalFrame(leftCell%conVars,face%cosx,face%cosy))
+        conVars = 0.5*LocalFrame(rightCell%conVars+leftCell%conVars,face%cosx,face%cosy)
         !Convert to primary variables
         prim = GetPrimary(conVars)
 
         !--------------------------------------------------
-        !Calculate a^L,a^R
+        !Calculate a_slope
         !--------------------------------------------------
         sw = (LocalFrame(rightCell%conVars,face%cosx,face%cosy)-LocalFrame(leftCell%conVars,face%cosx,face%cosy))/(0.5*leftCell%length(idx)+0.5*rightCell%length(idx)) !left slope of conVars
         a_slope = MicroSlope(prim,sw) !Calculate a_slope
@@ -483,9 +483,9 @@ contains
         face%flux(2) = face%flux(2)+Mt(1)*sum(weight*vn*vn*H_plus)+Mt(4)*sum(weight*vn*vn*h)-Mt(5)*sum(weight*vn*vn**2*sh)
         face%flux(3) = face%flux(3)+Mt(1)*sum(weight*vt*vn*H_plus)+Mt(4)*sum(weight*vt*vn*h)-Mt(5)*sum(weight*vt*vn**2*sh)
         face%flux(4) = face%flux(4)+&
-                        Mt(1)*0.5*(sum(weight*vn*(vn**2+vt**2)*H_plus)+sum(weight*vn*B_plus))+&
-                        Mt(4)*0.5*(sum(weight*vn*(vn**2+vt**2)*h)+sum(weight*vn*b))-&
-                        Mt(5)*0.5*(sum(weight*vn**2*(vn**2+vt**2)*sh)+sum(weight*vn**2*sb))
+                        Mt(1)*0.5*sum(weight*vn*((vn**2+vt**2)*H_plus+B_plus))+&
+                        Mt(4)*0.5*sum(weight*vn*((vn**2+vt**2)*h+b))-&
+                        Mt(5)*0.5*sum(weight*vn**2*((vn**2+vt**2)*sh+sb))
 
         !--------------------------------------------------
         !Calculate flux of distribution function
@@ -1374,6 +1374,17 @@ contains
 
         !close file
         close(RSTFILE)
+
+        open(unit=1,file='10.plt',status="replace",action="write")
+            do j=IYMIN,IYMAX
+                do i=IXMIN,IXMAX
+                    if(i==10)then
+                        write(1,*)  ctr(i,j)%y*sqrt(Re)/ctr(i,j)%x,solution(2,i,j)/INIT_GAS(2),solution(3,i,j)*sqrt(Re)/INIT_GAS(2)
+                    end if
+                end do
+            end do
+        close(1)
+
         deallocate(solution)
     end subroutine Output
 end module Writer
