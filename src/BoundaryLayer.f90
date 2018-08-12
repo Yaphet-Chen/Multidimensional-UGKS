@@ -113,10 +113,10 @@ module ControlParameters
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = LIMITER
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
-    integer(KINT), parameter                            :: QUADRATURE_TYPE = NEWTON
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
-    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.8 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -141,7 +141,7 @@ module ControlParameters
     !MU_REF determined by Re number
     real(KREAL), parameter                              :: MA = 0.3 !Free stream inflow Mach number
     real(KREAL), parameter                              :: Re = 100000 !Reynolds number in reference state
-    real(KREAL), parameter                              :: MU_REF = MA*sqrt(0.5*GAMMA)/Re !Viscosity coefficient in reference state
+    real(KREAL), parameter                              :: MU_REF = MA*sqrt(0.5*GAMMA)*104.68/Re !Viscosity coefficient in reference state
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction
@@ -510,7 +510,6 @@ contains
         face%flux_h = face%length*face%flux_h
         face%flux_b = face%length*face%flux_b
 
-        
         !--------------------------------------------------
         !Aftermath
         !--------------------------------------------------
@@ -1150,40 +1149,40 @@ contains
     !--------------------------------------------------
     subroutine InitVelocityGauss()
         real(KREAL)                                     :: umid,vmid
-        real(KREAL)                                     :: vcoords(28), weights(28) !Velocity points and weight for 28 points (symmetry)
+        real(KREAL)                                     :: vcoords(16), weights(16) !Velocity points and weight for 28 points (symmetry)
         integer(KINT)                                   :: i,j
 
         !set 28x28 velocity points and weight
-        vcoords = [ -0.5392407922630E+01, -0.4628038787602E+01, -0.3997895360339E+01, -0.3438309154336E+01,&
-                    -0.2926155234545E+01, -0.2450765117455E+01, -0.2007226518418E+01, -0.1594180474269E+01,&
-                    -0.1213086106429E+01, -0.8681075880846E+00, -0.5662379126244E+00, -0.3172834649517E+00,&
-                    -0.1331473976273E+00, -0.2574593750171E-01, +0.2574593750171E-01, +0.1331473976273E+00,&
-                    +0.3172834649517E+00, +0.5662379126244E+00, +0.8681075880846E+00, +0.1213086106429E+01,&
-                    +0.1594180474269E+01, +0.2007226518418E+01, +0.2450765117455E+01, +0.2926155234545E+01,&
-                    +0.3438309154336E+01, +0.3997895360339E+01, +0.4628038787602E+01, +0.5392407922630E+01 ]
+        ! vcoords = [ -0.5392407922630E+01, -0.4628038787602E+01, -0.3997895360339E+01, -0.3438309154336E+01,&
+        !             -0.2926155234545E+01, -0.2450765117455E+01, -0.2007226518418E+01, -0.1594180474269E+01,&
+        !             -0.1213086106429E+01, -0.8681075880846E+00, -0.5662379126244E+00, -0.3172834649517E+00,&
+        !             -0.1331473976273E+00, -0.2574593750171E-01, +0.2574593750171E-01, +0.1331473976273E+00,&
+        !             +0.3172834649517E+00, +0.5662379126244E+00, +0.8681075880846E+00, +0.1213086106429E+01,&
+        !             +0.1594180474269E+01, +0.2007226518418E+01, +0.2450765117455E+01, +0.2926155234545E+01,&
+        !             +0.3438309154336E+01, +0.3997895360339E+01, +0.4628038787602E+01, +0.5392407922630E+01 ]
 
-        weights = [ +0.2070921821819E-12, +0.3391774320172E-09, +0.6744233894962E-07, +0.3916031412192E-05,&
-                    +0.9416408715712E-04, +0.1130613659204E-02, +0.7620883072174E-02, +0.3130804321888E-01,&
-                    +0.8355201801999E-01, +0.1528864568113E+00, +0.2012086859914E+00, +0.1976903952423E+00,&
-                    +0.1450007948865E+00, +0.6573088665062E-01, +0.6573088665062E-01, +0.1450007948865E+00,&
-                    +0.1976903952423E+00, +0.2012086859914E+00, +0.1528864568113E+00, +0.8355201801999E-01,&
-                    +0.3130804321888E-01, +0.7620883072174E-02, +0.1130613659204E-02, +0.9416408715712E-04,&
-                    +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
+        ! weights = [ +0.2070921821819E-12, +0.3391774320172E-09, +0.6744233894962E-07, +0.3916031412192E-05,&
+        !             +0.9416408715712E-04, +0.1130613659204E-02, +0.7620883072174E-02, +0.3130804321888E-01,&
+        !             +0.8355201801999E-01, +0.1528864568113E+00, +0.2012086859914E+00, +0.1976903952423E+00,&
+        !             +0.1450007948865E+00, +0.6573088665062E-01, +0.6573088665062E-01, +0.1450007948865E+00,&
+        !             +0.1976903952423E+00, +0.2012086859914E+00, +0.1528864568113E+00, +0.8355201801999E-01,&
+        !             +0.3130804321888E-01, +0.7620883072174E-02, +0.1130613659204E-02, +0.9416408715712E-04,&
+        !             +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
 
         !set 16x16 velocity points and weight
-        ! vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
-        !             -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
-        !             0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
-        !             0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
+        vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
+                    -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
+                    0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
+                    0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
 
-        ! weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
-        !             0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
-        !             0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
-        !             0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
+        weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
+                    0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
+                    0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
+                    0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
 
         !set grid number for u-velocity and v-velocity
-        uNum = 28
-        vNum = 28
+        uNum = 16
+        vNum = 16
 
         !allocate discrete velocity space
         allocate(uSpace(uNum,vNum)) !x direction
@@ -1379,7 +1378,52 @@ contains
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
                     if(i==10)then
-                        write(1,*)  ctr(i,j)%y*sqrt(Re)/ctr(i,j)%x,solution(2,i,j)/INIT_GAS(2),solution(3,i,j)*sqrt(Re)/INIT_GAS(2)
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                    end if
+                end do
+            end do
+        close(1)
+        open(unit=1,file='20.plt',status="replace",action="write")
+            do j=IYMIN,IYMAX
+                do i=IXMIN,IXMAX
+                    if(i==20)then
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                    end if
+                end do
+            end do
+        close(1)
+        open(unit=1,file='30.plt',status="replace",action="write")
+            do j=IYMIN,IYMAX
+                do i=IXMIN,IXMAX
+                    if(i==30)then
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                    end if
+                end do
+            end do
+        close(1)
+        open(unit=1,file='40.plt',status="replace",action="write")
+            do j=IYMIN,IYMAX
+                do i=IXMIN,IXMAX
+                    if(i==40)then
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                    end if
+                end do
+            end do
+        close(1)
+        open(unit=1,file='50.plt',status="replace",action="write")
+            do j=IYMIN,IYMAX
+                do i=IXMIN,IXMAX
+                    if(i==50)then
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                    end if
+                end do
+            end do
+        close(1)
+        open(unit=1,file='60.plt',status="replace",action="write")
+            do j=IYMIN,IYMAX
+                do i=IXMIN,IXMAX
+                    if(i==60)then
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
@@ -1441,7 +1485,7 @@ program BoundaryLayer
             close(RESFILE)
         end if
 
-        if (mod(iter,1000)==0) then
+        if (mod(iter,5000)==0) then
             call Output()
         end if
 
