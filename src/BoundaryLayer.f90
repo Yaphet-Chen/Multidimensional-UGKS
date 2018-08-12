@@ -111,9 +111,9 @@ module ControlParameters
     !--------------------------------------------------
     !Variables to control the simulation
     !--------------------------------------------------
-    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
+    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = LIMITER
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
-    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = NEWTON
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
     real(KREAL), parameter                              :: CFL = 0.5 !CFL number
@@ -147,7 +147,7 @@ module ControlParameters
     real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction
     real(KREAL), parameter                              :: RX_L = 1.1, RX_R = 1.05, RY_U = 1.2 !Common ratio at x and y direction
     real(KREAL), parameter                              :: DX_MIN = 0.1, DY_MIN = 0.0175 !Scale factor, i.e. minimal cell size
-    integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 83, Y_NUM = 33 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 80, Y_NUM = 30 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = -X_NUM_L+1 , IXMAX = X_NUM_R, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: GHOST = 1 !Ghost point number
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
@@ -155,8 +155,8 @@ module ControlParameters
     !--------------------------------------------------
     !Discrete velocity space
     !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 72, vNum = 72 !Number of points in velocity space for u and v
-    real(KREAL)                                         :: U_MIN = -4.0, U_MAX = +4.0, V_MIN = -3.0, V_MAX = +3.0 !Minimum and maximum micro velocity
+    integer(KINT)                                       :: uNum = 16, vNum = 16 !Number of points in velocity space for u and v
+    real(KREAL)                                         :: U_MIN = -2.5, U_MAX = +2.5, V_MIN = -2.5, V_MAX = +2.5 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
     real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
 
@@ -362,94 +362,31 @@ module Flux
 
 contains
     !--------------------------------------------------
-    !>Calculate conVars at cell interface in local frame
-    !>@param[in]    leftCell  :cell left to the target interface
-    !>@param[inout] face      :the target interface
-    !>@param[in]    rightCell :cell right to the target interface
-    !>@param[in]    idx       :index indicating i or j direction
-    !--------------------------------------------------
-    subroutine CalcFaceConvars(leftCell,face,rightCell,idx)
-        type(CellCenter), intent(in)                    :: leftCell,rightCell
-        type(CellInterface), intent(inout)              :: face
-        integer(KINT), intent(in)                       :: idx
-        real(KREAL), allocatable, dimension(:,:)        :: vn,vt !normal and tangential micro velocity
-        real(KREAL), allocatable, dimension(:,:)        :: h,b !Distribution function at the interface
-        integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
-
-        !--------------------------------------------------
-        !Prepare
-        !--------------------------------------------------
-        !Allocate array
-        allocate(vn(uNum,vNum))
-        allocate(vt(uNum,vNum))
-        allocate(delta(uNum,vNum))
-        allocate(h(uNum,vNum))
-        allocate(b(uNum,vNum))
-
-        !Convert the velocity space to local frame
-        vn = uSpace*face%cosx+vSpace*face%cosy
-        vt =-uSpace*face%cosy+vSpace*face%cosx
-
-        !Heaviside step function
-        delta = (sign(UP,vn)+1)/2
-
-        !--------------------------------------------------
-        !Reconstruct initial distribution at interface
-        !--------------------------------------------------
-        h = (leftCell%h+0.5*leftCell%length(idx)*leftCell%sh(:,:,idx))*delta+&
-            (rightCell%h-0.5*rightCell%length(idx)*rightCell%sh(:,:,idx))*(1-delta)
-        b = (leftCell%b+0.5*leftCell%length(idx)*leftCell%sb(:,:,idx))*delta+&
-            (rightCell%b-0.5*rightCell%length(idx)*rightCell%sb(:,:,idx))*(1-delta)
-
-        !--------------------------------------------------
-        !Obtain macroscopic variables
-        !--------------------------------------------------
-        !Conservative variables conVars at interface
-        face%conVars(1) = sum(weight*h)
-        face%conVars(2) = sum(weight*vn*h)
-        face%conVars(3) = sum(weight*vt*h)
-        face%conVars(4) = 0.5*(sum(weight*(vn**2+vt**2)*h)+sum(weight*b))
-
-        !--------------------------------------------------
-        !Aftermath
-        !--------------------------------------------------
-        !Deallocate array
-        deallocate(vn)
-        deallocate(vt)
-        deallocate(delta)
-        deallocate(h)
-        deallocate(b)
-    end subroutine CalcFaceConvars
-
-    !--------------------------------------------------
     !>Calculate flux of inner interface
     !>@param[in]    leftCell  :cell left to the target interface
     !>@param[inout] face      :the target interface
     !>@param[in]    rightCell :cell right to the target interface
     !>@param[in]    idx       :index indicating i or j direction
     !--------------------------------------------------
-    subroutine CalcFlux(leftCell,face,rightCell,idx,face_U,face_D,idb)
+    subroutine CalcFlux(leftCell,face,rightCell,idx)
         type(CellCenter), intent(in)                    :: leftCell,rightCell
         type(CellInterface), intent(inout)              :: face
-        type(CellInterface), intent(in)                 :: face_U,face_D !Upper and Lower interface
-        integer(KINT), intent(in)                       :: idx,idb !indicator for direction and boundary
+        integer(KINT), intent(in)                       :: idx
         real(KREAL), allocatable, dimension(:,:)        :: vn,vt !normal and tangential micro velocity
         real(KREAL), allocatable, dimension(:,:)        :: h,b !Distribution function at the interface
         real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function
         real(KREAL), allocatable, dimension(:,:)        :: H_plus,B_plus !Shakhov part of the equilibrium distribution
         real(KREAL), allocatable, dimension(:,:)        :: sh,sb !Slope of distribution function at the interface
-        real(KREAL), allocatable, dimension(:,:)        :: sh_t,sb_t !Tangential slope of distribution function at the interface
         integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
-        real(KREAL)                                     :: prim(4) !Primary variables at the interface
+        real(KREAL)                                     :: conVars(4),prim(4) !Conservative and primary variables at the interface
         real(KREAL)                                     :: qf(2) !Heat flux in normal and tangential direction
         real(KREAL)                                     :: sw(4) !Slope of conVars
-        real(KREAL)                                     :: aL(4),aR(4),aT(4) !Micro slope of Maxwellian distribution, left,right and time.
-        real(KREAL)                                     :: b_slope(4) !Micro slope at tangential direction
+        real(KREAL)                                     :: a_slope(4),aT(4) !Micro slope of Maxwellian distribution, normal and time.
         real(KREAL)                                     :: Mu(0:MNUM),MuL(0:MNUM),MuR(0:MNUM),Mv(0:MTUM),Mxi(0:2) !<u^n>,<u^n>_{>0},<u^n>_{<0},<v^m>,<\xi^l>
-        real(KREAL)                                     :: Mau0(4),MauL(4),MauR(4),MauT(4) !<u\psi>,<aL*u^n*\psi>,<aR*u^n*\psi>,<A*u*\psi>
-        real(KREAL)                                     :: Mbu(4) !<b*u*v*\psi>
+        real(KREAL)                                     :: Mau0(4),Mau(4),MauT(4) !<u\psi>,<a*u^n*\psi>,<A*u*\psi>
         real(KREAL)                                     :: tau !Collision time
         real(KREAL)                                     :: Mt(5) !Some time integration terms
+        integer(KINT)                                   :: i,j
 
         !--------------------------------------------------
         !Prepare
@@ -462,8 +399,6 @@ contains
         allocate(b(uNum,vNum))
         allocate(sh(uNum,vNum))
         allocate(sb(uNum,vNum))
-        allocate(sh_t(uNum,vNum))
-        allocate(sb_t(uNum,vNum))
         allocate(H0(uNum,vNum))
         allocate(B0(uNum,vNum))
         allocate(H_plus(uNum,vNum))
@@ -486,31 +421,19 @@ contains
         sh = leftCell%sh(:,:,idx)*delta+rightCell%sh(:,:,idx)*(1-delta)
         sb = leftCell%sb(:,:,idx)*delta+rightCell%sb(:,:,idx)*(1-delta)
 
-        !Tangential part
-        if (idx==1) then
-            sh_t = leftCell%sh(:,:,2)*delta+rightCell%sh(:,:,2)*(1-delta)
-            sb_t = leftCell%sb(:,:,2)*delta+rightCell%sb(:,:,2)*(1-delta)
-        else
-            sh_t = leftCell%sh(:,:,1)*delta+rightCell%sh(:,:,1)*(1-delta)
-            sb_t = leftCell%sb(:,:,1)*delta+rightCell%sb(:,:,1)*(1-delta)
-        end if
         !--------------------------------------------------
         !Obtain macroscopic variables
         !--------------------------------------------------
-        !Obtain primary variables at interface
-        prim = GetPrimary(face%conVars) !face%conVars is in local frame already
+        !Conservative variables conVars at interface
+        conVars = 0.5*(LocalFrame(rightCell%conVars,face%cosx,face%cosy)+LocalFrame(leftCell%conVars,face%cosx,face%cosy))
+        !Convert to primary variables
+        prim = GetPrimary(conVars)
 
         !--------------------------------------------------
         !Calculate a^L,a^R
         !--------------------------------------------------
-        sw = (face%conVars-LocalFrame(leftCell%conVars,face%cosx,face%cosy))/(0.5*leftCell%length(idx)) !left slope of face%conVars
-        aL = MicroSlope(prim,sw) !Calculate a^L
-
-        sw = (LocalFrame(rightCell%conVars,face%cosx,face%cosy)-face%conVars)/(0.5*rightCell%length(idx)) !right slope of face%conVars
-        aR = MicroSlope(prim,sw) !Calculate a^R
-
-        sw = (face_U%conVars-face_D%conVars)/(0.5*face_U%length+idb*face%length+0.5*face_D%length) !right slope of face%conVars
-        b_slope = MicroSlope(prim,sw) !Calculate b_slope
+        sw = (LocalFrame(rightCell%conVars,face%cosx,face%cosy)-LocalFrame(leftCell%conVars,face%cosx,face%cosy))/(0.5*leftCell%length(idx)+0.5*rightCell%length(idx)) !left slope of conVars
+        a_slope = MicroSlope(prim,sw) !Calculate a_slope
 
         !--------------------------------------------------
         !Calculate time slope of conVars and A
@@ -518,10 +441,9 @@ contains
         !<u^n>,<v^m>,<\xi^l>,<u^n>_{>0},<u^n>_{<0}
         call CalcMoment(prim,Mu,Mv,Mxi,MuL,MuR) 
 
-        MauL = Moment_auvxi(aL,MuL,Mv,Mxi,1,0) !<aL*u*\psi>_{>0}
-        MauR = Moment_auvxi(aR,MuR,Mv,Mxi,1,0) !<aR*u*\psi>_{<0}
+        Mau = Moment_auvxi(a_slope,Mu,Mv,Mxi,1,0) !<a*u*\psi>
 
-        sw = -prim(1)*(MauL+MauR) !Time slope of conVars
+        sw = -prim(1)*Mau !Time slope of conVars
         aT = MicroSlope(prim,sw) !Calculate A
 
         !--------------------------------------------------
@@ -539,11 +461,10 @@ contains
         !Calculate the flux of conservative variables related to g0
         !--------------------------------------------------
         Mau0 = Moment_uvxi(Mu,Mv,Mxi,1,0,0) !<u*\psi>
-        MauL = Moment_auvxi(aL,MuL,Mv,Mxi,2,0) !<aL*u^2*\psi>_{>0}
-        MauR = Moment_auvxi(aR,MuR,Mv,Mxi,2,0) !<aR*u^2*\psi>_{<0}
+        Mau = Moment_auvxi(a_slope,Mu,Mv,Mxi,2,0) !<a*u^2*\psi>
         MauT = Moment_auvxi(aT,Mu,Mv,Mxi,1,0) !<A*u*\psi>
 
-        face%flux = Mt(1)*prim(1)*Mau0+Mt(2)*prim(1)*(MauL+MauR)+Mt(3)*prim(1)*MauT
+        face%flux = Mt(1)*prim(1)*Mau0+Mt(2)*prim(1)*Mau+Mt(3)*prim(1)*MauT
 
         !--------------------------------------------------
         !Calculate the flux of conservative variables related to g+ and f0
@@ -570,32 +491,14 @@ contains
         !Calculate flux of distribution function
         !--------------------------------------------------
         face%flux_h = Mt(1)*vn*(H0+H_plus)+&
-                        Mt(2)*vn**2*(aL(1)*H0+aL(2)*vn*H0+aL(3)*vt*H0+0.5*aL(4)*((vn**2+vt**2)*H0+B0))*delta+&
-                        Mt(2)*vn**2*(aR(1)*H0+aR(2)*vn*H0+aR(3)*vt*H0+0.5*aR(4)*((vn**2+vt**2)*H0+B0))*(1-delta)+&
+                        Mt(2)*vn**2*(a_slope(1)*H0+a_slope(2)*vn*H0+a_slope(3)*vt*H0+0.5*a_slope(4)*((vn**2+vt**2)*H0+B0))+&
                         Mt(3)*vn*(aT(1)*H0+aT(2)*vn*H0+aT(3)*vt*H0+0.5*aT(4)*((vn**2+vt**2)*H0+B0))+&
                         Mt(4)*vn*h-Mt(5)*vn**2*sh
 
         face%flux_b = Mt(1)*vn*(B0+B_plus)+&
-                        Mt(2)*vn**2*(aL(1)*B0+aL(2)*vn*B0+aL(3)*vt*B0+0.5*aL(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))*delta+&
-                        Mt(2)*vn**2*(aR(1)*B0+aR(2)*vn*B0+aR(3)*vt*B0+0.5*aR(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))*(1-delta)+&
+                        Mt(2)*vn**2*(a_slope(1)*B0+a_slope(2)*vn*B0+a_slope(3)*vt*B0+0.5*a_slope(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
                         Mt(3)*vn*(aT(1)*B0+aT(2)*vn*B0+aT(3)*vt*B0+0.5*aT(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
                         Mt(4)*vn*b-Mt(5)*vn**2*sb
-
-        !--------------------------------------------------
-        !Multidimension part
-        !--------------------------------------------------
-        !Calculate the b_slope flux related to g0
-        Mbu = Moment_auvxi(b_slope,Mu,Mv,Mxi,1,1) !<b*u*v*\psi>
-        face%flux = face%flux+Mt(2)*prim(1)*Mbu
-
-        face%flux(1) = face%flux(1)-Mt(5)*sum(weight*vn*vt*sh_t)
-        face%flux(2) = face%flux(2)-Mt(5)*sum(weight*vn**2*vt*sh_t)
-        face%flux(3) = face%flux(3)-Mt(5)*sum(weight*vn*vt**2*sh_t)
-        face%flux(4) = face%flux(4)-Mt(5)*0.5*(sum(weight*vn*vt*(vn**2+vt**2)*sh_t)+sum(weight*vn*vt*sb_t))
-
-        face%flux_h = face%flux_h+Mt(2)*vn*vt*(b_slope(1)*H0+b_slope(2)*vn*H0+b_slope(3)*vt*H0+0.5*b_slope(4)*((vn**2+vt**2)*H0+B0))-Mt(5)*vn*vt*sh_t
-
-        face%flux_b = face%flux_b+Mt(2)*vn*vt*(b_slope(1)*B0+b_slope(2)*vn*B0+b_slope(3)*vt*B0+0.5*b_slope(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))-Mt(5)*vn*vt*sb_t
         
         !--------------------------------------------------
         !Final flux
@@ -607,6 +510,7 @@ contains
         face%flux_h = face%length*face%flux_h
         face%flux_b = face%length*face%flux_b
 
+        
         !--------------------------------------------------
         !Aftermath
         !--------------------------------------------------
@@ -618,8 +522,6 @@ contains
         deallocate(b)
         deallocate(sh)
         deallocate(sb)
-        deallocate(sh_t)
-        deallocate(sb_t)
         deallocate(H0)
         deallocate(B0)
         deallocate(H_plus)
@@ -953,30 +855,6 @@ contains
     !--------------------------------------------------
     subroutine Evolution()
         integer(KINT)                                   :: i,j
-        
-        !--------------------------------------------------
-        !Calculate interface conVars for b_slope calculation
-        !--------------------------------------------------
-        !Inner part
-        !$omp parallel
-        !$omp do
-        do j=IYMIN,IYMAX
-            do i=IXMIN,IXMAX+1
-                call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
-            end do
-        end do
-        !$omp end do nowait
-
-        !Inner part
-        !$omp do
-        do j=IYMIN,IYMAX+1
-            do i=IXMIN,IXMAX
-                call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
-            end do
-        end do
-        !$omp end do nowait
-        !$omp end parallel
-
         !--------------------------------------------------
         !Calculate interface flux
         !--------------------------------------------------
@@ -986,20 +864,10 @@ contains
         !Inner part
         !$omp parallel
         !$omp do
-        do j=IYMIN+1,IYMAX-1
+        do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX+1
-                call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC,vface(i,j+1),vface(i,j-1),1) !idb=1, not boundary, full central differcence for b_slope
+                call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
             end do
-        end do
-        !$omp end do nowait
-        !$omp do
-        do i=IXMIN,IXMAX+1
-            call CalcFlux(ctr(i-1,IYMIN),vface(i,IYMIN),ctr(i,IYMIN),IDIRC,vface(i,IYMIN+1),vface(i,IYMIN),0) !idb=0, boundary, half central difference for b_slope
-        end do
-        !$omp end do nowait
-        !$omp do
-        do i=IXMIN,IXMAX+1
-            call CalcFlux(ctr(i-1,IYMAX),vface(i,IYMAX),ctr(i,IYMAX),IDIRC,vface(i,IYMAX),vface(i,IYMAX-1),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
 
@@ -1009,19 +877,9 @@ contains
         !Inner part
         !$omp do
         do j=IYMIN,IYMAX+1
-            do i=IXMIN+1,IXMAX-1
-                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC,hface(i+1,j),hface(i-1,j),1) !idb=1, not boundary, full central differcence for b_slope
+            do i=IXMIN,IXMAX
+                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
             end do
-        end do
-        !$omp end do nowait
-        !$omp do
-        do j=IYMIN,IYMAX+1
-                call CalcFlux(ctr(IXMIN,j-1),hface(IXMIN,j),ctr(IXMIN,j),JDIRC,hface(IXMIN+1,j),hface(IXMIN,j),0) !idb=0, boundary, half central difference for b_slope
-        end do
-        !$omp end do nowait
-        !$omp do
-        do j=IYMIN,IYMAX+1
-                call CalcFlux(ctr(IXMAX,j-1),hface(IXMAX,j),ctr(IXMAX,j),JDIRC,hface(IXMAX,j),hface(IXMAX-1,j),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp end parallel
@@ -1610,7 +1468,7 @@ program BoundaryLayer
             close(RESFILE)
         end if
 
-        if (mod(iter,2000)==0) then
+        if (mod(iter,1000)==0) then
             call Output()
         end if
 
