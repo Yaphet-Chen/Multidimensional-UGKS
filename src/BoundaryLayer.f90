@@ -147,7 +147,7 @@ module ControlParameters
     real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction
     real(KREAL), parameter                              :: RX_L = 1.1, RX_R = 1.05, RY_U = 1.2 !Common ratio at x and y direction
     real(KREAL), parameter                              :: DX_MIN = 0.1, DY_MIN = 0.0175 !Scale factor, i.e. minimal cell size
-    integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 80, Y_NUM = 30 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM_L = 41, X_NUM_R = 81, Y_NUM = 32 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = -X_NUM_L+1 , IXMAX = X_NUM_R, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: GHOST = 1 !Ghost point number
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
@@ -432,7 +432,7 @@ contains
         !--------------------------------------------------
         !Calculate a_slope
         !--------------------------------------------------
-        sw = (LocalFrame(rightCell%conVars,face%cosx,face%cosy)-LocalFrame(leftCell%conVars,face%cosx,face%cosy))/(0.5*leftCell%length(idx)+0.5*rightCell%length(idx)) !left slope of conVars
+        sw = LocalFrame(rightCell%conVars-leftCell%conVars,face%cosx,face%cosy)/(0.5*leftCell%length(idx)+0.5*rightCell%length(idx)) !left slope of conVars
         a_slope = MicroSlope(prim,sw) !Calculate a_slope
 
         !--------------------------------------------------
@@ -960,8 +960,8 @@ contains
             ctr(i,IYMAX+GHOST)%conVars = ctr(i,IYMAX)%conVars
             ctr(i,IYMAX+GHOST)%h = ctr(i,IYMAX)%h+0.5*ctr(i,IYMAX)%length(2)*ctr(i,IYMAX)%sh(:,:,2)
             ctr(i,IYMAX+GHOST)%b = ctr(i,IYMAX)%b+0.5*ctr(i,IYMAX)%length(2)*ctr(i,IYMAX)%sb(:,:,2)
-            ctr(i,IYMAX+GHOST)%sh = 0.0
-            ctr(i,IYMAX+GHOST)%sb = 0.0
+            ctr(i,IYMAX+GHOST)%sh = ctr(i,IYMAX)%sh
+            ctr(i,IYMAX+GHOST)%sb = ctr(i,IYMAX)%sb
         end do
         !$omp end do nowait
         
@@ -971,8 +971,8 @@ contains
             ctr(IXMAX+GHOST,j)%conVars = ctr(IXMAX,j)%conVars
             ctr(IXMAX+GHOST,j)%h = ctr(IXMAX,j)%h+0.5*ctr(IXMAX,j)%length(1)*ctr(IXMAX,j)%sh(:,:,1)
             ctr(IXMAX+GHOST,j)%b = ctr(IXMAX,j)%b+0.5*ctr(IXMAX,j)%length(1)*ctr(IXMAX,j)%sb(:,:,1)
-            ctr(IXMAX+GHOST,j)%sh = 0.0
-            ctr(IXMAX+GHOST,j)%sb = 0.0
+            ctr(IXMAX+GHOST,j)%sh = ctr(IXMAX,j)%sh
+            ctr(IXMAX+GHOST,j)%sb = ctr(IXMAX,j)%sb
         end do
         !$omp end do nowait
         !$omp end parallel
@@ -1152,7 +1152,7 @@ contains
         real(KREAL)                                     :: vcoords(16), weights(16) !Velocity points and weight for 28 points (symmetry)
         integer(KINT)                                   :: i,j
 
-        !set 28x28 velocity points and weight
+        !Set 28x28 velocity points and weight
         ! vcoords = [ -0.5392407922630E+01, -0.4628038787602E+01, -0.3997895360339E+01, -0.3438309154336E+01,&
         !             -0.2926155234545E+01, -0.2450765117455E+01, -0.2007226518418E+01, -0.1594180474269E+01,&
         !             -0.1213086106429E+01, -0.8681075880846E+00, -0.5662379126244E+00, -0.3172834649517E+00,&
@@ -1169,7 +1169,7 @@ contains
         !             +0.3130804321888E-01, +0.7620883072174E-02, +0.1130613659204E-02, +0.9416408715712E-04,&
         !             +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
 
-        !set 16x16 velocity points and weight
+        !Set 16x16 velocity points and weight
         vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
                     -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
                     0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
@@ -1374,55 +1374,55 @@ contains
         !close file
         close(RSTFILE)
 
-        open(unit=1,file='10.plt',status="replace",action="write")
+        open(unit=1,file='8.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==10)then
+                    if(i==8)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='20.plt',status="replace",action="write")
+        open(unit=1,file='18.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==20)then
+                    if(i==18)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='30.plt',status="replace",action="write")
+        open(unit=1,file='28.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==30)then
+                    if(i==28)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='40.plt',status="replace",action="write")
+        open(unit=1,file='38.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==40)then
+                    if(i==38)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='50.plt',status="replace",action="write")
+        open(unit=1,file='48.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==50)then
+                    if(i==48)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='60.plt',status="replace",action="write")
+        open(unit=1,file='58.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==60)then
+                    if(i==58)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
