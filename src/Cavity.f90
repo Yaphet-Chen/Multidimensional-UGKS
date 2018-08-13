@@ -157,7 +157,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 31, Y_NUM = 31 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 61, Y_NUM = 61 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -415,7 +415,7 @@ contains
         type(CellCenter), intent(in)                    :: leftCell,rightCell
         type(CellInterface), intent(inout)              :: face
 
-        face%conVars = 0.5*(LocalFrame(rightCell%conVars,face%cosx,face%cosy)+LocalFrame(leftCell%conVars,face%cosx,face%cosy))
+        face%conVars = 0.5*LocalFrame(rightCell%conVars+leftCell%conVars,face%cosx,face%cosy)
     end subroutine CalcFaceConvars
 
     !--------------------------------------------------
@@ -487,8 +487,8 @@ contains
             sht = leftCell%sh(:,:,2)*delta+rightCell%sh(:,:,2)*(1-delta)
             sbt = leftCell%sb(:,:,2)*delta+rightCell%sb(:,:,2)*(1-delta)
         else
-            sht = leftCell%sh(:,:,1)*delta+rightCell%sh(:,:,1)*(1-delta)
-            sbt = leftCell%sb(:,:,1)*delta+rightCell%sb(:,:,1)*(1-delta)
+            sht = -(leftCell%sh(:,:,1)*delta+rightCell%sh(:,:,1)*(1-delta))
+            sbt = -(leftCell%sb(:,:,1)*delta+rightCell%sb(:,:,1)*(1-delta))
         end if
         !--------------------------------------------------
         !Obtain macroscopic variables
@@ -499,7 +499,7 @@ contains
         !--------------------------------------------------
         !Calculate a_slope
         !--------------------------------------------------
-        sw_n = (LocalFrame(rightCell%conVars,face%cosx,face%cosy)-LocalFrame(leftCell%conVars,face%cosx,face%cosy))/(0.5*leftCell%length(idx)+0.5*rightCell%length(idx)) !normal slope of face%conVars
+        sw_n = LocalFrame(rightCell%conVars-leftCell%conVars,face%cosx,face%cosy)/(0.5*leftCell%length(idx)+0.5*rightCell%length(idx)) !normal slope of face%conVars
         a_slope = MicroSlope(prim,sw_n) !Calculate a^L
 
         sw_t = (face_U%conVars-face_D%conVars)/(0.5*face_U%length+idb*face%length+0.5*face_D%length) !right slope of face%conVars
@@ -1195,18 +1195,18 @@ contains
         !$omp do
         do j=IYMIN+1,IYMAX
             do i=IXMIN+1,IXMAX-1
-                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC,hface(i+1,j),hface(i-1,j),1) !idb=1, not boundary, full central differcence for b_slope
+                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC,hface(i-1,j),hface(i+1,j),1) !idb=1, not boundary, full central differcence for b_slope
             end do
         end do
         !$omp end do nowait
         !$omp do
         do j=IYMIN+1,IYMAX
-                call CalcFlux(ctr(IXMIN,j-1),hface(IXMIN,j),ctr(IXMIN,j),JDIRC,hface(IXMIN+1,j),hface(IXMIN,j),0) !idb=0, boundary, half central difference for b_slope
+                call CalcFlux(ctr(IXMIN,j-1),hface(IXMIN,j),ctr(IXMIN,j),JDIRC,hface(IXMIN,j),hface(IXMIN+1,j),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp do
         do j=IYMIN+1,IYMAX
-                call CalcFlux(ctr(IXMAX,j-1),hface(IXMAX,j),ctr(IXMAX,j),JDIRC,hface(IXMAX,j),hface(IXMAX-1,j),0) !idb=0, boundary, half central difference for b_slope
+                call CalcFlux(ctr(IXMAX,j-1),hface(IXMAX,j),ctr(IXMAX,j),JDIRC,hface(IXMAX-1,j),hface(IXMAX,j),0) !idb=0, boundary, half central difference for b_slope
         end do
         !$omp end do nowait
         !$omp end parallel
@@ -1609,29 +1609,40 @@ contains
     !--------------------------------------------------
     subroutine InitVelocityGauss()
         real(KREAL)                                     :: umid,vmid
-        real(KREAL)                                     :: vcoords(28), weights(28) !Velocity points and weight for 28 points (symmetry)
+        real(KREAL)                                     :: vcoords(16), weights(16) !Velocity points and weight for 28 points (symmetry)
         integer(KINT)                                   :: i,j
 
-        !set velocity points and weight
-        vcoords = [ -0.5392407922630E+01, -0.4628038787602E+01, -0.3997895360339E+01, -0.3438309154336E+01,&
-                    -0.2926155234545E+01, -0.2450765117455E+01, -0.2007226518418E+01, -0.1594180474269E+01,&
-                    -0.1213086106429E+01, -0.8681075880846E+00, -0.5662379126244E+00, -0.3172834649517E+00,&
-                    -0.1331473976273E+00, -0.2574593750171E-01, +0.2574593750171E-01, +0.1331473976273E+00,&
-                    +0.3172834649517E+00, +0.5662379126244E+00, +0.8681075880846E+00, +0.1213086106429E+01,&
-                    +0.1594180474269E+01, +0.2007226518418E+01, +0.2450765117455E+01, +0.2926155234545E+01,&
-                    +0.3438309154336E+01, +0.3997895360339E+01, +0.4628038787602E+01, +0.5392407922630E+01 ]
+        !Set 28*28 velocity points and weight
+        ! vcoords = [ -0.5392407922630E+01, -0.4628038787602E+01, -0.3997895360339E+01, -0.3438309154336E+01,&
+        !             -0.2926155234545E+01, -0.2450765117455E+01, -0.2007226518418E+01, -0.1594180474269E+01,&
+        !             -0.1213086106429E+01, -0.8681075880846E+00, -0.5662379126244E+00, -0.3172834649517E+00,&
+        !             -0.1331473976273E+00, -0.2574593750171E-01, +0.2574593750171E-01, +0.1331473976273E+00,&
+        !             +0.3172834649517E+00, +0.5662379126244E+00, +0.8681075880846E+00, +0.1213086106429E+01,&
+        !             +0.1594180474269E+01, +0.2007226518418E+01, +0.2450765117455E+01, +0.2926155234545E+01,&
+        !             +0.3438309154336E+01, +0.3997895360339E+01, +0.4628038787602E+01, +0.5392407922630E+01 ]
 
-        weights = [ +0.2070921821819E-12, +0.3391774320172E-09, +0.6744233894962E-07, +0.3916031412192E-05,&
-                    +0.9416408715712E-04, +0.1130613659204E-02, +0.7620883072174E-02, +0.3130804321888E-01,&
-                    +0.8355201801999E-01, +0.1528864568113E+00, +0.2012086859914E+00, +0.1976903952423E+00,&
-                    +0.1450007948865E+00, +0.6573088665062E-01, +0.6573088665062E-01, +0.1450007948865E+00,&
-                    +0.1976903952423E+00, +0.2012086859914E+00, +0.1528864568113E+00, +0.8355201801999E-01,&
-                    +0.3130804321888E-01, +0.7620883072174E-02, +0.1130613659204E-02, +0.9416408715712E-04,&
-                    +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
+        ! weights = [ +0.2070921821819E-12, +0.3391774320172E-09, +0.6744233894962E-07, +0.3916031412192E-05,&
+        !             +0.9416408715712E-04, +0.1130613659204E-02, +0.7620883072174E-02, +0.3130804321888E-01,&
+        !             +0.8355201801999E-01, +0.1528864568113E+00, +0.2012086859914E+00, +0.1976903952423E+00,&
+        !             +0.1450007948865E+00, +0.6573088665062E-01, +0.6573088665062E-01, +0.1450007948865E+00,&
+        !             +0.1976903952423E+00, +0.2012086859914E+00, +0.1528864568113E+00, +0.8355201801999E-01,&
+        !             +0.3130804321888E-01, +0.7620883072174E-02, +0.1130613659204E-02, +0.9416408715712E-04,&
+        !             +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
+
+        !Set 16*16 velocity points and weight
+        vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
+                    -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
+                    0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
+                    0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
+
+        weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
+                    0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
+                    0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
+                    0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
 
         !set grid number for u-velocity and v-velocity
-        uNum = 28
-        vNum = 28
+        uNum = 16
+        vNum = 16
 
         !allocate discrete velocity space
         allocate(uSpace(uNum,vNum)) !x direction
@@ -1874,7 +1885,7 @@ program Cavity
             close(RESFILE)
         end if
 
-        if (mod(iter,500)==0) then
+        if (mod(iter,10000)==0) then
             call Output()
         end if
 
