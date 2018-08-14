@@ -147,9 +147,9 @@ module ControlParameters
     real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction
     real(KREAL), parameter                              :: RX_L = 1.1, RX_R = 1.05, RY_U = 1.2 !Common ratio at x and y direction
     real(KREAL), parameter                              :: DX_MIN = 0.1, DY_MIN = 0.0175 !Scale factor, i.e. minimal cell size
-    integer(KINT), parameter                            :: X_NUM_L = 41, X_NUM_R = 81, Y_NUM = 32 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 80, Y_NUM = 30 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = -X_NUM_L+1 , IXMAX = X_NUM_R, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
-    integer(KINT), parameter                            :: GHOST = 1 !Ghost point number
+    integer(KINT), parameter                            :: GHOST = 2 !Ghost point number
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
     !--------------------------------------------------
@@ -687,6 +687,94 @@ contains
         dt = CFL/tMax
     end subroutine TimeStep
 
+    subroutine Boundary()
+        call BottomBoundary() !Set adiabatic slip/non-slip boundary at bottom
+        call OutBoundary() !Set free stream outflow boundary at right and up
+    end subroutine Boundary
+
+    !--------------------------------------------------
+    !>Set adiabatic slip(x<0) or non-slip(x>o) boundary at bottom
+    !--------------------------------------------------
+    subroutine BottomBoundary()
+        integer(KINT)                                   :: i,j,l,m
+
+        !$omp parallel
+        !$omp do
+        do j=1,GHOST
+            do i=1,IXMAX
+                ctr(i,IYMIN-j)%conVars(1) = ctr(i,IYMIN+j-1)%conVars(1)
+                ctr(i,IYMIN-j)%conVars(2) = -ctr(i,IYMIN+j-1)%conVars(2) !Reverse u velocity
+                ctr(i,IYMIN-j)%conVars(3) = -ctr(i,IYMIN+j-1)%conVars(3) !Reverse v velocity
+                ctr(i,IYMIN-j)%conVars(4) = ctr(i,IYMIN+j-1)%conVars(4)
+                do m=1,vNum
+                    do l=1,uNum
+                        !Make the distribution function central symmetry
+                        ctr(i,IYMIN-j)%h(l,m) = ctr(i,IYMIN+j-1)%h(uNum-l+1,vNum-m+1)
+                        ctr(i,IYMIN-j)%b(l,m) = ctr(i,IYMIN+j-1)%b(uNum-l+1,vNum-m+1)
+                        !Do the same thing for slope
+                        ctr(i,IYMIN-j)%sh = 0.0
+                        ctr(i,IYMIN-j)%sb = 0.0
+                    end do
+                end do
+            end do
+        end do
+        !$omp end do nowait
+        
+        !$omp do
+        do j=1,GHOST
+            do i=IXMIN,0
+                ctr(i,IYMIN-j)%conVars(1) = ctr(i,IYMIN+j-1)%conVars(1)
+                ctr(i,IYMIN-j)%conVars(2) = ctr(i,IYMIN+j-1)%conVars(2)
+                ctr(i,IYMIN-j)%conVars(3) = -ctr(i,IYMIN+j-1)%conVars(3) !Only reverse v velocity
+                ctr(i,IYMIN-j)%conVars(4) = ctr(i,IYMIN+j-1)%conVars(4)
+                do m=1,vNum
+                    do l=1,uNum
+                        !Make the distribution function u axial symmetry
+                        ctr(i,IYMIN-j)%h(l,m) = ctr(i,IYMIN+j-1)%h(l,vNum-m+1)
+                        ctr(i,IYMIN-j)%b(l,m) = ctr(i,IYMIN+j-1)%b(l,vNum-m+1)
+                        !Do the same thing for slope
+                        ctr(i,IYMIN-j)%sh(l,m,:) = 0.0
+                        ctr(i,IYMIN-j)%sb(l,m,:) = 0.0
+                    end do
+                end do
+            end do
+        end do
+        !$omp end do nowait
+        !$omp end parallel
+    end subroutine BottomBoundary
+    
+    subroutine OutBoundary()
+        integer(KINT)                                   :: i,j
+
+        !$omp parallel
+        !$omp do
+        !Set upper free stream outflow boundary
+        do j=1,GHOST
+            do i=IXMIN,IXMAX
+                ctr(i,IYMAX+j)%conVars = ctr(i,IYMAX)%conVars
+                ctr(i,IYMAX+j)%h = ctr(i,IYMAX)%h
+                ctr(i,IYMAX+j)%b = ctr(i,IYMAX)%b
+                ctr(i,IYMAX+j)%sh = ctr(i,IYMAX)%sh
+                ctr(i,IYMAX+j)%sb = ctr(i,IYMAX)%sb
+            end do
+        end do
+        !$omp end do nowait
+        
+        !$omp do
+        !Set right free stream outflow boundary
+        do i=1,GHOST
+            do j=IYMIN,IYMAX
+                ctr(IXMAX+i,j)%conVars = ctr(IXMAX,j)%conVars
+                ctr(IXMAX+i,j)%h = ctr(IXMAX,j)%h
+                ctr(IXMAX+i,j)%b = ctr(IXMAX,j)%b
+                ctr(IXMAX+i,j)%sh = ctr(IXMAX,j)%sh
+                ctr(IXMAX+i,j)%sb = ctr(IXMAX,j)%sb
+            end do
+        end do
+        !$omp end do nowait
+        !$omp end parallel
+    end subroutine OutBoundary
+
     !--------------------------------------------------
     !>Interpolation of the inner cells
     !>@param[in]    leftCell      :the left cell
@@ -738,7 +826,7 @@ contains
         !Inner part
         !$omp do
         do j=IYMIN,IYMAX
-            do i=IXMIN,IXMAX
+            do i=IXMIN-GHOST+1,IXMAX+GHOST-1
                 call InterpInner(ctr(i-1,j),ctr(i,j),ctr(i+1,j),IDIRC)
             end do
         end do
@@ -748,7 +836,7 @@ contains
         !j direction
         !--------------------------------------------------
         !$omp do
-        do j=IYMIN,IYMAX
+        do j=IYMIN-GHOST+1,IYMAX+GHOST-1
             do i=IXMIN,IXMAX
                 call InterpInner(ctr(i,j-1),ctr(i,j),ctr(i,j+1),JDIRC)
             end do
@@ -763,53 +851,6 @@ contains
         !$omp end do nowait
         !$omp end parallel
     end subroutine Reconstruction
-
-    !--------------------------------------------------
-    !>Set adiabatic slip(x<0) or non-slip(x>o) boundary at bottom
-    !--------------------------------------------------
-    subroutine BottomBoundary()
-        integer(KINT)                                   :: i,l,m
-
-        !$omp parallel
-        !$omp do
-        do i=1,IXMAX+GHOST
-            ctr(i,IYMIN-GHOST)%conVars(1) = ctr(i,IYMIN)%conVars(1)
-            ctr(i,IYMIN-GHOST)%conVars(2) = -ctr(i,IYMIN)%conVars(2) !Reverse u velocity
-            ctr(i,IYMIN-GHOST)%conVars(3) = -ctr(i,IYMIN)%conVars(3) !Reverse v velocity
-            ctr(i,IYMIN-GHOST)%conVars(4) = ctr(i,IYMIN)%conVars(4)
-            do m=1,vNum
-                do l=1,uNum
-                    !Make the distribution function central symmetry
-                    ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(uNum-l+1,vNum-m+1)
-                    ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(uNum-l+1,vNum-m+1)
-                    !Do the same thing for slope
-                    ctr(i,IYMIN-GHOST)%sh(l,m,:) = -ctr(i,IYMIN)%sh(uNum-l+1,vNum-m+1,:) !Reverse u velocity slope
-                    ctr(i,IYMIN-GHOST)%sb(l,m,:) = -ctr(i,IYMIN)%sb(uNum-l+1,vNum-m+1,:) !Reverse v velocity slope
-                end do
-            end do
-        end do
-        !$omp end do nowait
-        
-        !$omp do
-        do i=IXMIN,0
-            ctr(i,IYMIN-GHOST)%conVars(1) = ctr(i,IYMIN)%conVars(1)
-            ctr(i,IYMIN-GHOST)%conVars(2) = ctr(i,IYMIN)%conVars(2)
-            ctr(i,IYMIN-GHOST)%conVars(3) = -ctr(i,IYMIN)%conVars(3) !Only reverse v velocity
-            ctr(i,IYMIN-GHOST)%conVars(4) = ctr(i,IYMIN)%conVars(4)
-            do m=1,vNum
-                do l=1,uNum
-                    !Make the distribution function u axial symmetry
-                    ctr(i,IYMIN-GHOST)%h(l,m) = ctr(i,IYMIN)%h(l,vNum-m+1)
-                    ctr(i,IYMIN-GHOST)%b(l,m) = ctr(i,IYMIN)%b(l,vNum-m+1)
-                    !Do the same thing for slope
-                    ctr(i,IYMIN-GHOST)%sh(l,m,:) = ctr(i,IYMIN)%sh(l,vNum-m+1,:)
-                    ctr(i,IYMIN-GHOST)%sb(l,m,:) = -ctr(i,IYMIN)%sb(l,vNum-m+1,:) !Only reverse v velocity slope
-                end do
-            end do
-        end do
-        !$omp end do nowait
-        !$omp end parallel
-    end subroutine BottomBoundary
 
     !--------------------------------------------------
     !>Calculate the flux across the interfaces
@@ -949,34 +990,6 @@ contains
         deallocate(H_plus)
         deallocate(B_plus)
     end subroutine Update
-
-    subroutine OutBoundary()
-        integer(KINT)                                   :: i,j
-
-        !$omp parallel
-        !$omp do
-        !Set upper free stream outflow boundary
-        do i=IXMIN-GHOST,IXMAX+GHOST
-            ctr(i,IYMAX+GHOST)%conVars = ctr(i,IYMAX)%conVars
-            ctr(i,IYMAX+GHOST)%h = ctr(i,IYMAX)%h+0.5*ctr(i,IYMAX)%length(2)*ctr(i,IYMAX)%sh(:,:,2)
-            ctr(i,IYMAX+GHOST)%b = ctr(i,IYMAX)%b+0.5*ctr(i,IYMAX)%length(2)*ctr(i,IYMAX)%sb(:,:,2)
-            ctr(i,IYMAX+GHOST)%sh = ctr(i,IYMAX)%sh
-            ctr(i,IYMAX+GHOST)%sb = ctr(i,IYMAX)%sb
-        end do
-        !$omp end do nowait
-        
-        !$omp do
-        !Set right free stream outflow boundary
-        do j=IYMIN-GHOST,IYMAX+GHOST
-            ctr(IXMAX+GHOST,j)%conVars = ctr(IXMAX,j)%conVars
-            ctr(IXMAX+GHOST,j)%h = ctr(IXMAX,j)%h+0.5*ctr(IXMAX,j)%length(1)*ctr(IXMAX,j)%sh(:,:,1)
-            ctr(IXMAX+GHOST,j)%b = ctr(IXMAX,j)%b+0.5*ctr(IXMAX,j)%length(1)*ctr(IXMAX,j)%sb(:,:,1)
-            ctr(IXMAX+GHOST,j)%sh = ctr(IXMAX,j)%sh
-            ctr(IXMAX+GHOST,j)%sb = ctr(IXMAX,j)%sb
-        end do
-        !$omp end do nowait
-        !$omp end parallel
-    end subroutine OutBoundary
 end module Solver
 
 !--------------------------------------------------
@@ -1043,11 +1056,13 @@ contains
         !Y direction
         ctr(:,IYMIN)%y = Y_START+0.5*DY_MIN
         ctr(:,IYMIN)%length(2) = DY_MIN
-        ctr(:,IYMIN-GHOST)%y = Y_START-0.5*DY_MIN
-        ctr(:,IYMIN-GHOST)%length(2) = DY_MIN
         do j=IYMIN+1,IYMAX+GHOST
             ctr(:,j)%length(2) = ctr(:,j-1)%length(2)*RY_U
             ctr(:,j)%y = ctr(:,j-1)%y+0.5*(ctr(:,j)%length(2)+ctr(:,j-1)%length(2))
+        end do
+        do j=1,GHOST
+            ctr(:,IYMIN-j)%length(2) = ctr(:,IYMIN+J-1)%length(2)
+            ctr(:,IYMIN-j)%y = 2.0*Y_START-ctr(:,IYMIN+J-1)%y
         end do
         
         !X direction (x>0)
@@ -1463,9 +1478,8 @@ program BoundaryLayer
     !Iteration
     do while(.true.)
         call TimeStep() !Calculate the time step
+        call Boundary() !Set Boundary condition
         call Reconstruction() !Calculate the slope of distribution function
-        call BottomBoundary() !Set adiabatic slip/non-slip boundary at bottom
-        call OutBoundary() !Set free stream outflow boundary at right and up
         call Evolution() !Calculate flux across the interfaces
         call Update() !Update cell averaged value
 
@@ -1485,7 +1499,7 @@ program BoundaryLayer
             close(RESFILE)
         end if
 
-        if (mod(iter,5000)==0) then
+        if (mod(iter,10000)==0) then
             call Output()
         end if
 
