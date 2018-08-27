@@ -147,7 +147,7 @@ module ControlParameters
     real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction
     real(KREAL), parameter                              :: RX_L = 1.1, RX_R = 1.05, RY_U = 1.2 !Common ratio at x and y direction
     real(KREAL), parameter                              :: DX_MIN = 0.1, DY_MIN = 0.0175 !Scale factor, i.e. minimal cell size
-    integer(KINT), parameter                            :: X_NUM_L = 40, X_NUM_R = 80, Y_NUM = 30 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM_L = 38, X_NUM_R = 82, Y_NUM = 30 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = -X_NUM_L+1 , IXMAX = X_NUM_R, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: GHOST = 2 !Ghost point number
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
@@ -688,8 +688,8 @@ contains
     end subroutine TimeStep
 
     subroutine Boundary()
-        call BottomBoundary() !Set adiabatic slip/non-slip boundary at bottom
         call OutBoundary() !Set free stream outflow boundary at right and up
+        call BottomBoundary() !Set adiabatic slip/non-slip boundary at bottom
     end subroutine Boundary
 
     !--------------------------------------------------
@@ -733,8 +733,8 @@ contains
                         ctr(i,IYMIN-j)%h(l,m) = ctr(i,IYMIN+j-1)%h(l,vNum-m+1)
                         ctr(i,IYMIN-j)%b(l,m) = ctr(i,IYMIN+j-1)%b(l,vNum-m+1)
                         !Do the same thing for slope
-                        ctr(i,IYMIN-j)%sh(l,m,:) = 0.0
-                        ctr(i,IYMIN-j)%sb(l,m,:) = 0.0
+                        ctr(i,IYMIN-j)%sh = 0.0
+                        ctr(i,IYMIN-j)%sb = 0.0
                     end do
                 end do
             end do
@@ -1038,31 +1038,13 @@ contains
     subroutine InitNonUniformMesh()
         integer(KINT)                                   :: i,j
 
-        !Geometry (node coordinate)
-        geometry(:,IYMIN)%y = Y_START
-        do j=IYMIN+1,IYMAX+1
-            geometry(:,j)%y = geometry(:,j-1)%y+DY_MIN*RY_U**(j-2)
-        end do
-
-        geometry(1,:)%x = X_START
-        do i=2,IXMAX+1
-            geometry(i,:)%x = geometry(i-1,:)%x+DX_MIN*RX_R**(i-2)
-        end do
-        do i=0,IXMIN,-1
-            geometry(i,:)%x = geometry(i+1,:)%x-DX_MIN*RX_L**(-i)
-        end do
-
         !Cell center
         !Y direction
-        ctr(:,IYMIN)%y = Y_START+0.5*DY_MIN
-        ctr(:,IYMIN)%length(2) = DY_MIN
-        do j=IYMIN+1,IYMAX+GHOST
+        ctr(:,IYMIN-GHOST)%length(2) = DY_MIN
+        ctr(:,IYMIN-GHOST)%y = Y_START-(RY_U*ctr(:,IYMIN-GHOST)%Length(2)+0.5*ctr(:,IYMIN-GHOST)%Length(2))
+        do j=IYMIN-GHOST+1,IYMAX+GHOST
             ctr(:,j)%length(2) = ctr(:,j-1)%length(2)*RY_U
             ctr(:,j)%y = ctr(:,j-1)%y+0.5*(ctr(:,j)%length(2)+ctr(:,j-1)%length(2))
-        end do
-        do j=1,GHOST
-            ctr(:,IYMIN-j)%length(2) = ctr(:,IYMIN+J-1)%length(2)
-            ctr(:,IYMIN-j)%y = 2.0*Y_START-ctr(:,IYMIN+J-1)%y
         end do
         
         !X direction (x>0)
@@ -1074,9 +1056,7 @@ contains
         end do
 
         !X direction (x<0)
-        ctr(0,:)%x = X_START-0.5*DX_MIN
-        ctr(0,:)%length(1) = DX_MIN
-        do i=-1,IXMIN-GHOST,-1
+        do i=0,IXMIN-GHOST,-1
             ctr(i,:)%length(1) = ctr(i+1,:)%length(1)*RX_L
             ctr(i,:)%x = ctr(i+1,:)%x-0.5*(ctr(i,:)%length(1)+ctr(i+1,:)%length(1))
         end do
@@ -1089,21 +1069,22 @@ contains
 
         !Vertical interface
         forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX)
-            vface(i,j)%length = DY_MIN*RY_U**(j-1)
+            vface(i,j)%length = ctr(i,j)%length(2)
             vface(i,j)%cosx = 1.0
             vface(i,j)%cosy = 0.0
         end forall
 
         !Horizontal interface
-        forall(i=1:IXMAX,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = DX_MIN*RX_R**(i-1)
+        forall(i=IXMIN:IXMAX,j=IYMIN:IYMAX+1)
+            hface(i,j)%length = ctr(i,j)%length(1)
             hface(i,j)%cosx = 0.0
             hface(i,j)%cosy = 1.0
         end forall
-        forall(i=IXMIN:0,j=IYMIN:IYMAX+1)
-            hface(i,j)%length = DX_MIN*RX_L**(-i)
-            hface(i,j)%cosx = 0.0
-            hface(i,j)%cosy = 1.0
+
+        !Geometry (node coordinate)
+        forall(i=IXMIN:IXMAX+1,j=IYMIN:IYMAX+1)
+            geometry(i,j)%y = 0.5*(ctr(i,j-1)%y+ctr(i,j)%y)
+            geometry(i,j)%x = 0.5*(ctr(i-1,j)%x+ctr(i,j)%x)
         end forall
     end subroutine InitNonUniformMesh
 
@@ -1389,55 +1370,55 @@ contains
         !close file
         close(RSTFILE)
 
-        open(unit=1,file='8.plt',status="replace",action="write")
+        open(unit=1,file='10.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==8)then
+                    if(i==10)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='18.plt',status="replace",action="write")
+        open(unit=1,file='20.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==18)then
+                    if(i==20)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='28.plt',status="replace",action="write")
+        open(unit=1,file='30.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==28)then
+                    if(i==30)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='38.plt',status="replace",action="write")
+        open(unit=1,file='40.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==38)then
+                    if(i==40)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='48.plt',status="replace",action="write")
+        open(unit=1,file='50.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==48)then
+                    if(i==50)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
             end do
         close(1)
-        open(unit=1,file='58.plt',status="replace",action="write")
+        open(unit=1,file='60.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
-                    if(i==58)then
+                    if(i==60)then
                         write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
                     end if
                 end do
@@ -1485,7 +1466,6 @@ program BoundaryLayer
 
         !Check stopping criterion
         if(all(res<EPS) .or. iter>=MAX_ITER) exit
-        ! if(isnan(res(1)) .or. isnan(res(4))) exit
 
         !Log the iteration situation every 10 iterations
         if (mod(iter,10)==0) then
