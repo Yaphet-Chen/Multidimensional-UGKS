@@ -11,7 +11,7 @@ FCFLAGS = -module $(BIN) -O3 -fpconstant
 OMPFLAG = -openmp -parallel -fpp
 
 ifeq ($(FC),gfortran)
-	FCFLAGS = -J$(BIN) -O3 -ffree-line-length-none -march=native -fdefault-real-8
+	FCFLAGS = -J$(BIN) -O3 -fdefault-real-8 -fdefault-double-8 -ffree-line-length-none -march=native 
     OMPFLAG = -fopenmp
 	# gfortran -ffree-line-length-none -march=native -funroll-loops -flto -pipe -O3
 	# -Wall -Wextra -fcheck=all -fbacktrace
