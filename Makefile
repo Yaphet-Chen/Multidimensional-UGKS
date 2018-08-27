@@ -7,11 +7,11 @@ SHELL = /bin/bash -O extglob
 OMP = yes
 # FC = ifort
 FC = gfortran
-FCFLAGS = -module $(BIN) -O3
+FCFLAGS = -module $(BIN) -O3 -fpconstant
 OMPFLAG = -openmp -parallel -fpp
 
 ifeq ($(FC),gfortran)
-	FCFLAGS = -J$(BIN) -O3 -ffree-line-length-none -march=native
+	FCFLAGS = -J$(BIN) -O3 -ffree-line-length-none -march=native -fdefault-real-8
     OMPFLAG = -fopenmp
 	# gfortran -ffree-line-length-none -march=native -funroll-loops -flto -pipe -O3
 	# -Wall -Wextra -fcheck=all -fbacktrace
