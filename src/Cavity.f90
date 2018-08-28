@@ -36,6 +36,7 @@ module ConstantVariables
     !Quadrature method
     integer(KINT), parameter                            :: NEWTON = 0 !Newton–Cotes
     integer(KINT), parameter                            :: GAUSS = 1 !Gauss-Hermite
+    integer(KINT), parameter                            :: TRAPEZOID = 2 !Trapezoidal rule
 
     !Time step method
     integer(KINT), parameter                            :: GLOBAL = 0 !Global time step
@@ -119,7 +120,7 @@ module ControlParameters
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
-    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = TRAPEZOID
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
@@ -164,8 +165,8 @@ module ControlParameters
     !--------------------------------------------------
     !Discrete velocity space
     !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 61, vNum = 61 !Number of points in velocity space for u and v
-    real(KREAL)                                         :: U_MIN = -4.0, U_MAX = +4.0, V_MIN = -4.0, V_MAX = +4.0 !Minimum and maximum micro velocity
+    integer(KINT)                                       :: uNum = 16, vNum = 16 !Number of points in velocity space for u and v
+    real(KREAL)                                         :: U_MIN = -5.0, U_MAX = +5.0, V_MIN = -5.0, V_MAX = +5.0 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
     real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
 
@@ -1341,6 +1342,8 @@ contains
             call InitVelocityNewton(uNum,vNum) !Initialize discrete velocity space using Newton–Cotes formulas
         elseif (QUADRATURE_TYPE==GAUSS) then
             call InitVelocityGauss() !Initialize discrete velocity space using Gaussian-Hermite type quadrature
+        elseif (QUADRATURE_TYPE==TRAPEZOID) then
+            call InitVelocityTrapezoidal() !Initialize discrete velocity space using Trapezoidal rule
         else
             stop "Error in QUADRATURE_TYPE!"
         end if
@@ -1663,6 +1666,48 @@ contains
         V_MAX = maxval(abs(vSpace(1,:)))
     end subroutine InitVelocityGauss
 
+    !--------------------------------------------------
+    !>Initialize discrete velocity space using Trapezoidal rule
+    !--------------------------------------------------
+    subroutine InitVelocityTrapezoidal()
+        real(KREAL)                                     :: du,dv !Spacing in u and v velocity space
+        integer(KINT)                                   :: i,j
+
+        !Allocate array
+        allocate(uSpace(uNum,vNum))
+        allocate(vSpace(uNum,vNum))
+        allocate(weight(uNum,vNum))
+
+        !spacing in u and v velocity space
+        du = (U_MAX-U_MIN)/(uNum-1)
+        dv = (V_MAX-V_MIN)/(vNum-1)
+
+        !velocity space
+        forall(i=1:uNum,j=1:vNum)
+            uSpace(i,j) = U_MIN+(i-1)*du
+            vSpace(i,j) = V_MIN+(j-1)*dv
+            weight(i,j) = (traCoeff(i,uNum)*du)*(traCoeff(j,vNum)*dv)
+        end forall
+
+        contains
+            !--------------------------------------------------
+            !>Calculate the coefficient for Trapezoidal rule
+            !>@param[in] idx          :index in velocity space
+            !>@param[in] num          :total number in velocity space
+            !>@return    traCoeff     :coefficient for newton-cotes formula
+            !--------------------------------------------------
+            pure function traCoeff(idx,num)
+                integer(KINT), intent(in)               :: idx,num
+                real(KREAL)                             :: traCoeff
+
+                if (idx==1 .or. idx==num) then 
+                    traCoeff = 0.5
+                else
+                    traCoeff = 1.0
+                end if
+            end function traCoeff
+    end subroutine InitVelocityTrapezoidal
+    
     !--------------------------------------------------
     !>Allocate arrays in velocity space
     !--------------------------------------------------
