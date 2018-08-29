@@ -120,7 +120,7 @@ module ControlParameters
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
-    integer(KINT), parameter                            :: QUADRATURE_TYPE = TRAPEZOID
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
@@ -986,8 +986,10 @@ contains
                 sos = GetSoundSpeed(prim)
 
                 !Maximum velocity
-                prim(2) = max(U_MAX,abs(prim(2)))+sos
-                prim(3) = max(V_MAX,abs(prim(3)))+sos
+                ! prim(2) = max(U_MAX,abs(prim(2)))+sos
+                ! prim(3) = max(V_MAX,abs(prim(3)))+sos
+                prim(2) = abs(prim(2))+sos
+                prim(3) = abs(prim(3))+sos
 
                 !Maximum 1/dt allowed
                 tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
@@ -1011,10 +1013,13 @@ contains
     !>@param[inout] rightCell     :the right cell
     !>@param[in]    idx           :the index indicating i or j direction
     !--------------------------------------------------
-    subroutine InterpBoundary(leftCell,targetCell,rightCell,idx)
+    subroutine InterpBoundary(leftCell,targetCell,rightCell,idx,rot,bc)
         type(CellCenter), intent(inout)                 :: targetCell
         type(CellCenter), intent(inout)                 :: leftCell,rightCell
-        integer(KINT), intent(in)                       :: idx
+        integer(KINT), intent(in)                       :: idx,rot
+        real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
+        real(KREAL)                                     :: prim(4),tau
+        real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function
 
         
         if (RECONSTRUCTION_METHOD==LIMITER) then
@@ -1022,8 +1027,19 @@ contains
             targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
             targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
         elseif (RECONSTRUCTION_METHOD==CENTRAL) then
-            targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
-            targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            allocate(H0(uNum,vNum))
+            allocate(B0(uNum,vNum))
+            prim = GetPrimary(targetCell%conVars)
+            prim(1) = prim(1)/prim(4)*bc(4)
+            prim(2:4) = bc(2:4)
+            call DiscreteMaxwell(H0,B0,uSpace,vSpace,prim)
+            tau = GetTau(prim)
+            H0 = (1.0-exp(-dt/tau))*H0+exp(-dt/tau)*targetCell%h
+            B0 = (1.0-exp(-dt/tau))*B0+exp(-dt/tau)*targetCell%b
+            targetCell%sh(:,:,idx) = (0.5*(rot+1.0)*rightCell%h+0.5*(rot-1.0)*leftCell%h-rot*H0)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
+            targetCell%sb(:,:,idx) = (0.5*(rot+1.0)*rightCell%b+0.5*(rot-1.0)*leftCell%b-rot*B0)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
+            deallocate(H0)
+            deallocate(B0)
         else
             stop "Error in RECONSTRUCTION_METHOD!"
         end if
@@ -1081,8 +1097,8 @@ contains
         !Boundary part
         !$omp do
         do j=IYMIN,IYMAX
-            call InterpBoundary(ctr(IXMIN,j),ctr(IXMIN,j),ctr(IXMIN+1,j),IDIRC) !the last argument indicating i direction
-            call InterpBoundary(ctr(IXMAX-1,j),ctr(IXMAX,j),ctr(IXMAX,j),IDIRC)
+            call InterpBoundary(ctr(IXMIN,j),ctr(IXMIN,j),ctr(IXMIN+1,j),IDIRC,RN,BC_W)
+            call InterpBoundary(ctr(IXMAX-1,j),ctr(IXMAX,j),ctr(IXMAX,j),IDIRC,RY,BC_E)
         end do
         !$omp end do nowait
 
@@ -1102,8 +1118,8 @@ contains
         !Boundary part
         !$omp do
         do i=IXMIN,IXMAX
-            call InterpBoundary(ctr(i,IYMIN),ctr(i,IYMIN),ctr(i,IYMIN+1),JDIRC)
-            call InterpBoundary(ctr(i,IYMAX-1),ctr(i,IYMAX),ctr(i,IYMAX),JDIRC)
+            call InterpBoundary(ctr(i,IYMIN),ctr(i,IYMIN),ctr(i,IYMIN+1),JDIRC,RN,BC_S)
+            call InterpBoundary(ctr(i,IYMAX-1),ctr(i,IYMAX),ctr(i,IYMAX),JDIRC,RY,BC_N)
         end do
         !$omp end do nowait
 
@@ -1930,7 +1946,7 @@ program Cavity
             close(RESFILE)
         end if
 
-        if (mod(iter,10000)==0) then
+        if (mod(iter,5000)==0) then
             call Output()
         end if
 
