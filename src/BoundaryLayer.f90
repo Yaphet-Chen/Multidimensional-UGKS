@@ -688,6 +688,8 @@ contains
     subroutine BottomBoundary()
         integer(KINT)                                   :: i,j,l,m
 
+        !$omp parallel	
+        !$omp do
         do j=1,GHOST
             do i=1,IXMAX
                 ctr(i,IYMIN-j)%conVars(1) = ctr(i,IYMIN+j-1)%conVars(1)
@@ -706,7 +708,9 @@ contains
                 end do
             end do
         end do
-
+        !$omp end do nowait	
+        	
+        !$omp do
         do j=1,GHOST
             do i=IXMIN,0
                 ctr(i,IYMIN-j)%conVars(1) = ctr(i,IYMIN+j-1)%conVars(1)
@@ -725,11 +729,15 @@ contains
                 end do
             end do
         end do
+        !$omp end do nowait	
+        !$omp end parallel
     end subroutine BottomBoundary
     
     subroutine OutBoundary()
         integer(KINT)                                   :: i,j
 
+        !$omp parallel	
+        !$omp do
         !Set upper free stream outflow boundary
         do j=1,GHOST
             do i=IXMIN,IXMAX
@@ -740,7 +748,9 @@ contains
                 ctr(i,IYMAX+j)%sb = ctr(i,IYMAX)%sb
             end do
         end do
-
+        !$omp end do nowait	
+        	
+        !$omp do
         !Set right free stream outflow boundary
         do i=1,GHOST
             do j=IYMIN,IYMAX
@@ -751,6 +761,8 @@ contains
                 ctr(IXMAX+i,j)%sb = ctr(IXMAX,j)%sb
             end do
         end do
+        !$omp end do nowait	
+        !$omp end parallel
     end subroutine OutBoundary
 
     !--------------------------------------------------
