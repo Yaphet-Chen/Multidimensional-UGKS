@@ -38,10 +38,6 @@ module ConstantVariables
     integer(KINT), parameter                            :: GAUSS = 1 !Gauss-Hermite
     integer(KINT), parameter                            :: TRAPEZOID = 2 !Trapezoidal rule
 
-    !Time step method
-    integer(KINT), parameter                            :: GLOBAL = 0 !Global time step
-    integer(KINT), parameter                            :: LOCAL = 1 !Local time step
-
     !Boundary type
     integer(KINT), parameter                            :: KINETIC = 0 !Kinetic boundary condition
     integer(KINT), parameter                            :: MULTISCALE = 1 !Multiscale boundary condition
@@ -122,7 +118,6 @@ module ControlParameters
     integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: TIME_METHOD = GLOBAL
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
     real(KREAL), parameter                              :: CFL = 0.5 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
@@ -190,7 +185,6 @@ module ControlParameters
     type(CellCenter)                                    :: ctr(IXMIN:IXMAX,IYMIN:IYMAX) !Cell center
     type(CellInterface)                                 :: vface(IXMIN:IXMAX+1,IYMIN:IYMAX),hface(IXMIN:IXMAX,IYMIN:IYMAX+1) !Vertical and horizontal interfaces
     type(Grid)                                          :: geometry(IXMIN:IXMAX+1,IYMIN:IYMAX+1)
-    real(KREAL)                                         :: dt_local(IXMIN:IXMAX,IYMIN:IYMAX) !Local time step
 
     !Initial condition (density, u-velocity, v-velocity, lambda=1/temperature)
     real(KREAL), parameter, dimension(4)                :: INIT_GAS = [1.0, 0.0, 0.0, 1.0]
@@ -994,9 +988,6 @@ contains
                 !Maximum 1/dt allowed
                 tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
 
-                if (TIME_METHOD==LOCAL) then
-                    dt_local(i,j) = CFL*ctr(i,j)%area/(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3)) !Record local time step
-                end if
             end do
         end do
         !$omp end do
@@ -1268,13 +1259,7 @@ contains
                 !--------------------------------------------------
                 !Update conVars^{n+1} and Calculate H^{n+1},B^{n+1},\tau^{n+1}
                 !--------------------------------------------------
-                if (TIME_METHOD==GLOBAL) then
-                    ctr(i,j)%conVars = ctr(i,j)%conVars+(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with global time step
-                elseif (TIME_METHOD==LOCAL) then
-                    ctr(i,j)%conVars = ctr(i,j)%conVars+dt_local(i,j)/dt*(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1} with local time step
-                else
-                    stop "Error in TIME_METHOD!"
-                end if
+                ctr(i,j)%conVars = ctr(i,j)%conVars+(vface(i,j)%flux-vface(i+1,j)%flux+hface(i,j)%flux-hface(i,j+1)%flux)/ctr(i,j)%area !Update conVars^{n+1}
 
                 prim = GetPrimary(ctr(i,j)%conVars)
                 call DiscreteMaxwell(H,B,uSpace,vSpace,prim)
@@ -1305,24 +1290,15 @@ contains
                 !--------------------------------------------------
                 !Update distribution function
                 !--------------------------------------------------
-                if (TIME_METHOD==GLOBAL) then
-                    ! ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
-                    !                     0.5*dt*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt/tau)
-                    ! ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
-                    !                     0.5*dt*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt/tau)
+                ! ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
+                !                     0.5*dt*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt/tau)
+                ! ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
+                !                     0.5*dt*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt/tau)
 
-                    ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
-                                    dt*(H/tau*(1-exp(-dt/tau))+(H_old-ctr(i,j)%h)/tau_old*exp(-dt/tau)))/(1.0+dt/tau*(1-exp(-dt/tau)))
-                    ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
-                                    dt*(B/tau*(1-exp(-dt/tau))+(B_old-ctr(i,j)%b)/tau_old*exp(-dt/tau)))/(1.0+dt/tau*(1-exp(-dt/tau)))
-                elseif (TIME_METHOD==LOCAL) then
-                    ctr(i,j)%h = (ctr(i,j)%h+dt_local(i,j)/dt*(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
-                                        0.5*dt_local(i,j)*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
-                    ctr(i,j)%b = (ctr(i,j)%b+dt_local(i,j)/dt*(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
-                                        0.5*dt_local(i,j)*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt_local(i,j)/tau)
-                else
-                    stop "Error in TIME_METHOD!"
-                end if
+                ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
+                                dt*(H/tau*(1-exp(-dt/tau))+(H_old-ctr(i,j)%h)/tau_old*exp(-dt/tau)))/(1.0+dt/tau*(1-exp(-dt/tau)))
+                ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
+                                dt*(B/tau*(1-exp(-dt/tau))+(B_old-ctr(i,j)%b)/tau_old*exp(-dt/tau)))/(1.0+dt/tau*(1-exp(-dt/tau)))
             end do
         end do
 
