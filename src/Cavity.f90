@@ -980,8 +980,11 @@ contains
                 sos = GetSoundSpeed(prim)
 
                 !Maximum velocity
+                !------------- For large Knudsen number ------------
                 ! prim(2) = max(U_MAX,abs(prim(2)))+sos
                 ! prim(3) = max(V_MAX,abs(prim(3)))+sos
+
+                !------------- For large Reynolds number -----------
                 prim(2) = abs(prim(2))+sos
                 prim(3) = abs(prim(3))+sos
 
@@ -1913,7 +1916,6 @@ program Cavity
 
         !Check stopping criterion
         if(all(res<EPS) .or. iter>=MAX_ITER) exit
-        ! if(isnan(res(1)) .or. isnan(res(4))) exit
 
         !Log the iteration situation every 10 iterations
         if (mod(iter,10)==0) then
