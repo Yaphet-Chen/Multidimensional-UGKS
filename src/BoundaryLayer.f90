@@ -664,8 +664,8 @@ contains
                 sos = GetSoundSpeed(prim)
 
                 !Maximum velocity
-                prim(2) = max(U_MAX,abs(prim(2)))+sos
-                prim(3) = max(V_MAX,abs(prim(3)))+sos
+                prim(2) = abs(prim(2))+sos
+                prim(3) = abs(prim(3))+sos
 
                 !Maximum 1/dt allowed
                 tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
@@ -1497,7 +1497,7 @@ program BoundaryLayer
             close(RESFILE)
         end if
 
-        if (mod(iter,10000)==0) then
+        if (mod(iter,2000)==0) then
             call Output()
         end if
 
