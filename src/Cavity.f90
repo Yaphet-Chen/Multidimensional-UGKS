@@ -1826,7 +1826,7 @@ contains
     subroutine Output()
         real(KREAL)                                     :: prim(4)
         real(KREAL), dimension(:,:,:), allocatable      :: solution
-        integer(KINT)                                   :: i,j
+        integer(KINT)                                   :: i,j,mid
         character(len=20)                               :: str
 
         !--------------------------------------------------
@@ -1879,6 +1879,26 @@ contains
 
         !close file
         close(RSTFILE)
+
+        !Write central line
+        mid = (IXMIN+IXMAX)/2
+        open(unit=1,file='Y-U.plt',status="replace",action="write")
+            write(1,*) 0.0,0.0
+            do j=IYMIN,IYMAX
+                write(1,*)  ctr(mid,j)%y,solution(2,mid,j)/0.15
+            end do
+            write(1,*) 1.0,1.0
+
+        mid = (IYMIN+IYMAX)/2
+        open(unit=1,file='X-V.plt',status="replace",action="write")
+            write(1,*) 0.0,0.0
+            do i=IXMIN,IXMAX
+                write(1,*)  ctr(i,mid)%x,solution(3,i,mid)/0.15
+            end do
+            write(1,*) 1.0,0.0
+        close(1)
+
+
         deallocate(solution)
     end subroutine Output
 end module Writer
