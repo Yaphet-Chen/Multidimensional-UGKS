@@ -47,8 +47,8 @@ module ConstantVariables
     integer(KINT), parameter                            :: JDIRC = 2 !J direction
 
     !Rotation
-    integer(KINT), parameter                            :: RN = 1 !No frame rotation
-    integer(KINT), parameter                            :: RY = -1 !With frame rotation
+    real(KREAL), parameter                              :: RN = 1 !No frame rotation
+    real(KREAL), parameter                              :: RY = -1 !With frame rotation
 end module ConstantVariables
 
 !--------------------------------------------------
@@ -116,11 +116,11 @@ module ControlParameters
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
-    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = TRAPEZOID
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
     real(KREAL), parameter                              :: CFL = 0.5 !CFL number
-    integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
+    integer(KINT), parameter                            :: MAX_ITER = 500000000 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-9 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
@@ -431,7 +431,7 @@ contains
         real(KREAL), allocatable, dimension(:,:)        :: H_plus,B_plus !Shakhov part of the equilibrium distribution
         real(KREAL), allocatable, dimension(:,:)        :: shn,sbn !Slope of distribution function at the interface
         real(KREAL), allocatable, dimension(:,:)        :: sht,sbt !Tangential slope of distribution function at the interface
-        integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
+        real(KREAL), allocatable, dimension(:,:)        :: delta !Heaviside step function
         real(KREAL)                                     :: prim(4) !Primary variables at the interface
         real(KREAL)                                     :: qf(2) !Heat flux in normal and tangential direction
         real(KREAL)                                     :: sw_n(4),sw_t(4) !Slope of conVars at normal and tangential direction
@@ -440,7 +440,6 @@ contains
         real(KREAL)                                     :: Mau0(4),Mau(4),Mbv(4),MauT(4) !<u\psi>,<a*u^n*\psi>,<b*u*v*\psi>,<A*u*\psi>
         real(KREAL)                                     :: tau !Collision time
         real(KREAL)                                     :: Mt(5) !Some time integration terms
-        integer(KINT)                                   :: i,j
 
         !--------------------------------------------------
         !Prepare
@@ -465,7 +464,7 @@ contains
         vt =-uSpace*face%cosy+vSpace*face%cosx
 
         !Heaviside step function
-        delta = (sign(UP,vn)+1)/2
+        delta = (sign(UP,vn)+1.0)/2.0
 
         !--------------------------------------------------
         !Reconstruct initial distribution at interface
@@ -609,7 +608,8 @@ contains
         real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
         type(CellInterface), intent(inout)              :: face
         type(CellCenter), intent(in)                    :: cell
-        integer(KINT), intent(in)                       :: idx,rot
+        integer(KINT), intent(in)                       :: idx
+        real(KREAL), intent(in)                         :: rot
 
         if (BOUNDARY_TYPE==KINETIC) then
             call KineticFluxBoundary(bc,face,cell,idx,rot)
@@ -632,11 +632,12 @@ contains
         real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
         type(CellInterface), intent(inout)              :: face
         type(CellCenter), intent(in)                    :: cell
-        integer(KINT), intent(in)                       :: idx,rot
+        integer(KINT), intent(in)                       :: idx
+        real(KREAL), intent(in)                         :: rot
         real(KREAL), allocatable, dimension(:,:)        :: vn,vt !Normal and tangential micro velocity
         real(KREAL), allocatable, dimension(:,:)        :: h,b !Reduced distribution function
         real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function at the wall
-        integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
+        real(KREAL), allocatable, dimension(:,:)        :: delta !Heaviside step function
         real(KREAL)                                     :: prim(4) !boundary condition in local frame
         real(KREAL)                                     :: incidence,reflection
         !--------------------------------------------------
@@ -656,7 +657,7 @@ contains
         vt =-uSpace*face%cosy+vSpace*face%cosx
 
         !Heaviside step function. The rotation accounts for the right wall
-        delta = (sign(UP,vn)*rot+1)/2
+        delta = (sign(UP,vn)*rot+1.0)/2.0
 
         !Boundary condition in local frame
         prim = LocalFrame(bc,face%cosx,face%cosy)
@@ -730,12 +731,13 @@ contains
         real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
         type(CellInterface), intent(inout)              :: face
         type(CellCenter), intent(in)                    :: cell
-        integer(KINT), intent(in)                       :: idx,rot
+        integer(KINT), intent(in)                       :: idx
+        real(KREAL), intent(in)                         :: rot
         real(KREAL), allocatable, dimension(:,:)        :: vn,vt !Normal and tangential micro velocity
         real(KREAL), allocatable, dimension(:,:)        :: h,b !Reduced non-equlibrium distribution function at interface
         real(KREAL), allocatable, dimension(:,:)        :: H_g,B_g !Maxwellian distribution function g_{i+1/2}
         real(KREAL), allocatable, dimension(:,:)        :: H_w,B_w !Maxwellian distribution function at the wall
-        integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
+        real(KREAL), allocatable, dimension(:,:)        :: delta !Heaviside step function
         real(KREAL)                                     :: prim(4)
         real(KREAL)                                     :: prim_g(4) !Primary variables of g_{i+1/2}
         real(KREAL)                                     :: prim_w(4) !boundary condition in local frame
@@ -761,7 +763,7 @@ contains
         vt =-uSpace*face%cosy+vSpace*face%cosx
 
         !Heaviside step function. The rotation accounts for the right wall
-        delta = (sign(UP,vn)*rot+1)/2
+        delta = (sign(UP,vn)*rot+1.0)/2.0
 
         !--------------------------------------------------
         !Reconstruct non-equlibrium distribution at interface
@@ -1010,7 +1012,8 @@ contains
     subroutine InterpBoundary(leftCell,targetCell,rightCell,idx,rot,bc)
         type(CellCenter), intent(inout)                 :: targetCell
         type(CellCenter), intent(inout)                 :: leftCell,rightCell
-        integer(KINT), intent(in)                       :: idx,rot
+        integer(KINT), intent(in)                       :: idx
+        real(KREAL), intent(in)                         :: rot
         real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
         real(KREAL)                                     :: prim(4),tau
         real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function
