@@ -112,7 +112,7 @@ module ControlParameters
     integer(KINT), parameter                            :: OUTPUT_METHOD = POINTS
     real(KREAL), parameter                              :: CFL = 0.8 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
-    real(KREAL), parameter                              :: EPS = 1.0E-5 !Convergence criteria
+    real(KREAL), parameter                              :: EPS = 1.0E-6 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
     real(KREAL)                                         :: dt !Global time step
@@ -135,7 +135,8 @@ module ControlParameters
     !MU_REF determined by Re number
     real(KREAL), parameter                              :: MA = 0.3 !Free stream inflow Mach number
     real(KREAL), parameter                              :: Re = 100000.0 !Reynolds number in reference state
-    real(KREAL), parameter                              :: MU_REF = MA*sqrt(0.5*GAMMA)*104.68/Re !Viscosity coefficient in reference state
+    real(KREAL), parameter                              :: UINF = 0.1
+    real(KREAL), parameter                              :: MU_REF = UINF*104.68/Re !Viscosity coefficient in reference state
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, Y_START = 0.0 !Start point in x, y direction
@@ -150,7 +151,7 @@ module ControlParameters
     !Discrete velocity space
     !--------------------------------------------------
     integer(KINT)                                       :: uNum = 16, vNum = 16 !Number of points in velocity space for u and v
-    real(KREAL)                                         :: U_MIN = -5.0, U_MAX = +5.0, V_MIN = -5.0, V_MAX = +5.0 !Minimum and maximum micro velocity
+    real(KREAL)                                         :: U_MIN = -2.5, U_MAX = +2.5, V_MIN = -2.5, V_MAX = +2.5 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
     real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
 
@@ -691,27 +692,6 @@ contains
         !$omp parallel	
         !$omp do
         do j=1,GHOST
-            do i=1,IXMAX
-                ctr(i,IYMIN-j)%conVars(1) = ctr(i,IYMIN+j-1)%conVars(1)
-                ctr(i,IYMIN-j)%conVars(2) = -ctr(i,IYMIN+j-1)%conVars(2) !Reverse u velocity
-                ctr(i,IYMIN-j)%conVars(3) = -ctr(i,IYMIN+j-1)%conVars(3) !Reverse v velocity
-                ctr(i,IYMIN-j)%conVars(4) = ctr(i,IYMIN+j-1)%conVars(4)
-                do m=1,vNum
-                    do l=1,uNum
-                        !Make the distribution function central symmetry
-                        ctr(i,IYMIN-j)%h(l,m) = ctr(i,IYMIN+j-1)%h(uNum-l+1,vNum-m+1)
-                        ctr(i,IYMIN-j)%b(l,m) = ctr(i,IYMIN+j-1)%b(uNum-l+1,vNum-m+1)
-                        !Do the same thing for slope
-                        ctr(i,IYMIN-j)%sh = 0.0
-                        ctr(i,IYMIN-j)%sb = 0.0
-                    end do
-                end do
-            end do
-        end do
-        !$omp end do nowait	
-        	
-        !$omp do
-        do j=1,GHOST
             do i=IXMIN,0
                 ctr(i,IYMIN-j)%conVars(1) = ctr(i,IYMIN+j-1)%conVars(1)
                 ctr(i,IYMIN-j)%conVars(2) = ctr(i,IYMIN+j-1)%conVars(2)
@@ -730,6 +710,27 @@ contains
             end do
         end do
         !$omp end do nowait	
+        	
+        !$omp do
+        do j=1,GHOST
+            do i=1,IXMAX
+                ctr(i,IYMIN-j)%conVars(1) = ctr(i,IYMIN+j-1)%conVars(1)
+                ctr(i,IYMIN-j)%conVars(2) = -ctr(i,IYMIN+j-1)%conVars(2) !Reverse u velocity
+                ctr(i,IYMIN-j)%conVars(3) = -ctr(i,IYMIN+j-1)%conVars(3) !Reverse v velocity
+                ctr(i,IYMIN-j)%conVars(4) = ctr(i,IYMIN+j-1)%conVars(4)
+                do m=1,vNum
+                    do l=1,uNum
+                        !Make the distribution function central symmetry
+                        ctr(i,IYMIN-j)%h(l,m) = ctr(i,IYMIN+j-1)%h(uNum-l+1,vNum-m+1)
+                        ctr(i,IYMIN-j)%b(l,m) = ctr(i,IYMIN+j-1)%b(uNum-l+1,vNum-m+1)
+                        !Do the same thing for slope
+                        ctr(i,IYMIN-j)%sh = 0.0
+                        ctr(i,IYMIN-j)%sb = 0.0
+                    end do
+                end do
+            end do
+        end do
+        !$omp end do nowait	
         !$omp end parallel
     end subroutine BottomBoundary
     
@@ -737,19 +738,6 @@ contains
         integer(KINT)                                   :: i,j
 
         !$omp parallel	
-        !$omp do
-        !Set upper free stream outflow boundary
-        do j=1,GHOST
-            do i=IXMIN,IXMAX
-                ctr(i,IYMAX+j)%conVars = ctr(i,IYMAX)%conVars
-                ctr(i,IYMAX+j)%h = ctr(i,IYMAX)%h
-                ctr(i,IYMAX+j)%b = ctr(i,IYMAX)%b
-                ctr(i,IYMAX+j)%sh = ctr(i,IYMAX)%sh
-                ctr(i,IYMAX+j)%sb = ctr(i,IYMAX)%sb
-            end do
-        end do
-        !$omp end do nowait	
-        	
         !$omp do
         !Set right free stream outflow boundary
         do i=1,GHOST
@@ -759,6 +747,19 @@ contains
                 ctr(IXMAX+i,j)%b = ctr(IXMAX,j)%b
                 ctr(IXMAX+i,j)%sh = ctr(IXMAX,j)%sh
                 ctr(IXMAX+i,j)%sb = ctr(IXMAX,j)%sb
+            end do
+        end do
+        !$omp end do nowait	
+
+        !$omp do
+        !Set upper free stream outflow boundary
+        do j=1,GHOST
+            do i=IXMIN,IXMAX
+                ctr(i,IYMAX+j)%conVars = ctr(i,IYMAX)%conVars
+                ctr(i,IYMAX+j)%h = ctr(i,IYMAX)%h
+                ctr(i,IYMAX+j)%b = ctr(i,IYMAX)%b
+                ctr(i,IYMAX+j)%sh = ctr(i,IYMAX)%sh
+                ctr(i,IYMAX+j)%sb = ctr(i,IYMAX)%sb
             end do
         end do
         !$omp end do nowait	
@@ -918,8 +919,8 @@ contains
                 !--------------------------------------------------
                 !Record residual
                 !--------------------------------------------------
-                sumRes = sumRes+((conVars_old-ctr(i,j)%conVars)*ctr(i,j)%area)**2
-                sumAvg = sumAvg+abs(ctr(i,j)%conVars)*ctr(i,j)%area
+                sumRes = sumRes+(conVars_old-ctr(i,j)%conVars)**2
+                sumAvg = sumAvg+abs(ctr(i,j)%conVars)
             
                 !--------------------------------------------------
                 !Shakhov part
@@ -948,7 +949,7 @@ contains
         end do
 
         !Calculate final residual
-        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)/dt
+        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)
         
         !Deallocate arrays
         deallocate(H_old)
@@ -1260,7 +1261,8 @@ contains
         allocate(B(uNum,vNum))
 
         !Get conservative variables and Maxwellian distribution function
-        INIT_GAS(2) = MA*sqrt(0.5*GAMMA) !Set u-velocity
+        INIT_GAS(2) = UINF !Set u-velocity
+        INIT_GAS(4) = (GAMMA*MA**2)/(2.0*UINF**2)
         conVars = GetConserved(INIT_GAS)
         call DiscreteMaxwell(H,B,uSpace,vSpace,INIT_GAS)
 
@@ -1334,10 +1336,10 @@ contains
         !--------------------------------------------------
         !Prepare solutions
         !--------------------------------------------------
-        allocate(solution(7,IXMIN:IXMAX,IYMIN:IYMAX))
+        allocate(solution(7,IXMIN-GHOST:IXMAX+GHOST,IYMIN-GHOST:IYMAX+GHOST))
         
-        do j=IYMIN,IYMAX
-            do i=IXMIN,IXMAX
+        do j=IYMIN-GHOST,IYMAX+GHOST
+            do i=IXMIN-GHOST,IXMAX+GHOST
                 prim = GetPrimary(ctr(i,j)%conVars)
                 solution(1:3,i,j) = prim(1:3) !Density,u,v
                 solution(4,i,j) = 1/prim(4) !Temperature
@@ -1367,11 +1369,11 @@ contains
                 write(RSTFILE,"(6(ES23.16,2X))") geometry%x
                 write(RSTFILE,"(6(ES23.16,2X))") geometry%y
             case(POINTS)
-                write(RSTFILE,*) "ZONE  I = ",IXMAX-IXMIN+1,", J = ",IYMAX-IYMIN+1,"DATAPACKING=BLOCK"
+                write(RSTFILE,*) "ZONE  I = ",IXMAX-IXMIN+1+2*GHOST,", J = ",IYMAX-IYMIN+1+2*GHOST,"DATAPACKING=BLOCK"
 
                 !write geometry (cell centered value)
-                write(RSTFILE,"(6(ES23.16,2X))") ctr(IXMIN:IXMAX,IYMIN:IYMAX)%x
-                write(RSTFILE,"(6(ES23.16,2X))") ctr(IXMIN:IXMAX,IYMIN:IYMAX)%y
+                write(RSTFILE,"(6(ES23.16,2X))") ctr%x
+                write(RSTFILE,"(6(ES23.16,2X))") ctr%y
         end select
 
         !Write solution (cell-centered)
@@ -1386,7 +1388,7 @@ contains
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
                     if(i==10)then
-                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/UINF),solution(2,i,j)/UINF,solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/UINF)
                     end if
                 end do
             end do
@@ -1395,7 +1397,7 @@ contains
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
                     if(i==20)then
-                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/UINF),solution(2,i,j)/UINF,solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/UINF)
                     end if
                 end do
             end do
@@ -1404,7 +1406,7 @@ contains
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
                     if(i==30)then
-                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/UINF),solution(2,i,j)/UINF,solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/UINF)
                     end if
                 end do
             end do
@@ -1413,7 +1415,7 @@ contains
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
                     if(i==40)then
-                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/UINF),solution(2,i,j)/UINF,solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/UINF)
                     end if
                 end do
             end do
@@ -1422,7 +1424,7 @@ contains
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
                     if(i==50)then
-                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/UINF),solution(2,i,j)/UINF,solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/UINF)
                     end if
                 end do
             end do
@@ -1431,7 +1433,7 @@ contains
             do j=IYMIN,IYMAX
                 do i=IXMIN,IXMAX
                     if(i==60)then
-                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/(MA*sqrt(0.5*GAMMA))),solution(2,i,j)/(MA*sqrt(0.5*GAMMA)),solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/(MA*sqrt(0.5*GAMMA)))
+                        write(1,*)  ctr(i,j)%y/sqrt(MU_REF*ctr(i,j)%x/UINF),solution(2,i,j)/UINF,solution(3,i,j)*sqrt(ctr(i,j)%x/MU_REF/UINF)
                     end if
                 end do
             end do
