@@ -116,12 +116,12 @@ module ControlParameters
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
     integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
-    integer(KINT), parameter                            :: QUADRATURE_TYPE = TRAPEZOID
+    integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
-    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.3 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 500000000 !Maximal iteration number
-    real(KREAL), parameter                              :: EPS = 1.0E-9 !Convergence criteria
+    real(KREAL), parameter                              :: EPS = 1.0E-7 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
     real(KREAL)                                         :: dt !Global time step
@@ -1020,23 +1020,11 @@ contains
 
         
         if (RECONSTRUCTION_METHOD==LIMITER) then
-            ! call VanLeerLimiter(leftCell,targetCell,rightCell,idx)
             targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
             targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
         elseif (RECONSTRUCTION_METHOD==CENTRAL) then
-            allocate(H0(uNum,vNum))
-            allocate(B0(uNum,vNum))
-            prim = GetPrimary(targetCell%conVars)
-            prim(1) = prim(1)/prim(4)*bc(4)
-            prim(2:4) = bc(2:4)
-            call DiscreteMaxwell(H0,B0,uSpace,vSpace,prim)
-            tau = GetTau(prim)
-            H0 = (1.0-exp(-dt/tau))*H0+exp(-dt/tau)*targetCell%h
-            B0 = (1.0-exp(-dt/tau))*B0+exp(-dt/tau)*targetCell%b
-            targetCell%sh(:,:,idx) = (0.5*(rot+1.0)*rightCell%h+0.5*(rot-1.0)*leftCell%h-rot*H0)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
-            targetCell%sb(:,:,idx) = (0.5*(rot+1.0)*rightCell%b+0.5*(rot-1.0)*leftCell%b-rot*B0)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
-            deallocate(H0)
-            deallocate(B0)
+            targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
         else
             stop "Error in RECONSTRUCTION_METHOD!"
         end if
@@ -1897,7 +1885,6 @@ contains
             end do
             write(1,*) 1.0,0.0
         close(1)
-
 
         deallocate(solution)
     end subroutine Output
