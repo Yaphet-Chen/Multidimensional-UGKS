@@ -27,7 +27,7 @@ BIN = bin
 #--------------------------------------------------
 #compiling
 #--------------------------------------------------
-all: checkdir StationaryShockStructure Cavity BoundaryLayer Cavity_LocalTimeStepping
+all: checkdir StationaryShockStructure Cavity BoundaryLayer Cavity_LocalTimeStepping Oscillatory_Cavity
 
 #mkdir
 checkdir:
@@ -45,6 +45,9 @@ BoundaryLayer: checkdir
 
 Cavity_LocalTimeStepping: checkdir
 	$(FC) $(FCFLAGS) -o $(BIN)/Cavity_LocalTimeStepping src/Cavity_LocalTimeStepping.f90
+
+Oscillatory_Cavity: checkdir
+	$(FC) $(FCFLAGS) -o $(BIN)/Oscillatory_Cavity src/Oscillatory_Cavity.f90
 
 #clean
 clean:
