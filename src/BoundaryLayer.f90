@@ -110,7 +110,7 @@ module ControlParameters
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = TRAPEZOID
     integer(KINT), parameter                            :: OUTPUT_METHOD = POINTS
-    real(KREAL), parameter                              :: CFL = 0.8 !CFL number
+    real(KREAL), parameter                              :: CFL = 1.2 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-6 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
