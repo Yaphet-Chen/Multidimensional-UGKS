@@ -41,6 +41,10 @@ module ConstantVariables
     !Boundary type
     integer(KINT), parameter                            :: KINETIC = 0 !Kinetic boundary condition
     integer(KINT), parameter                            :: MULTISCALE = 1 !Multiscale boundary condition
+
+    !Flux type
+    integer(KINT), parameter                            :: SPLITTING = 0 !Flux with direction splitting
+    integer(KINT), parameter                            :: MULTIDIMENSION = 1 !Flux with multi-dimension
     
     !Direction
     integer(KINT), parameter                            :: IDIRC = 1 !I direction
@@ -119,6 +123,7 @@ module ControlParameters
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
+    integer(KINT), parameter                            :: FLUX_TYPE = MULTIDIMENSION
     real(KREAL), parameter                              :: CFL = 0.3 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 500000000 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-7 !Convergence criteria
@@ -395,6 +400,9 @@ end module Tools
 module Flux
     use Tools
     implicit none
+    interface CalcFlux
+        module procedure CalcFlux_MultiDimension,CalcFlux_DirectionSplitting
+    end interface
     integer(KREAL), parameter                           :: MNUM = 6 !Number of normal velocity moments
     integer(KREAL), parameter                           :: MTUM = 5 !Number of tangential velocity moments
 
@@ -414,13 +422,13 @@ contains
     end subroutine CalcFaceConvars
 
     !--------------------------------------------------
-    !>Calculate flux of inner interface
+    !>Calculate flux of inner interface with multi-dimension
     !>@param[in]    leftCell  :cell left to the target interface
     !>@param[inout] face      :the target interface
     !>@param[in]    rightCell :cell right to the target interface
     !>@param[in]    idx       :index indicating i or j direction
     !--------------------------------------------------
-    subroutine CalcFlux(leftCell,face,rightCell,idx,face_U,face_D,idb)
+    subroutine CalcFlux_MultiDimension(leftCell,face,rightCell,idx,face_U,face_D,idb)
         type(CellCenter), intent(in)                    :: leftCell,rightCell
         type(CellInterface), intent(inout)              :: face
         type(CellInterface), intent(in)                 :: face_U,face_D !Upper and Lower interface
@@ -594,8 +602,186 @@ contains
         deallocate(B0)
         deallocate(H_plus)
         deallocate(B_plus)
-    end subroutine CalcFlux
+    end subroutine CalcFlux_MultiDimension
     
+    !--------------------------------------------------
+    !>Calculate flux of inner interface with direction splitting
+    !>@param[in]    leftCell  :cell left to the target interface
+    !>@param[inout] face      :the target interface
+    !>@param[in]    rightCell :cell right to the target interface
+    !>@param[in]    idx       :index indicating i or j direction
+    !--------------------------------------------------
+    subroutine CalcFlux_DirectionSplitting(leftCell,face,rightCell,idx)
+        type(CellCenter), intent(in)                    :: leftCell,rightCell
+        type(CellInterface), intent(inout)              :: face
+        integer(KINT), intent(in)                       :: idx
+        real(KREAL), allocatable, dimension(:,:)        :: vn,vt !normal and tangential micro velocity
+        real(KREAL), allocatable, dimension(:,:)        :: h,b !Distribution function at the interface
+        real(KREAL), allocatable, dimension(:,:)        :: H0,B0 !Maxwellian distribution function
+        real(KREAL), allocatable, dimension(:,:)        :: H_plus,B_plus !Shakhov part of the equilibrium distribution
+        real(KREAL), allocatable, dimension(:,:)        :: sh,sb !Slope of distribution function at the interface
+        integer(KINT), allocatable, dimension(:,:)      :: delta !Heaviside step function
+        real(KREAL)                                     :: conVars(4),prim(4) !Conservative and primary variables at the interface
+        real(KREAL)                                     :: qf(2) !Heat flux in normal and tangential direction
+        real(KREAL)                                     :: sw(4) !Slope of conVars
+        real(KREAL)                                     :: aL(4),aR(4),aT(4) !Micro slope of Maxwellian distribution, left,right and time.
+        real(KREAL)                                     :: Mu(0:MNUM),MuL(0:MNUM),MuR(0:MNUM),Mv(0:MTUM),Mxi(0:2) !<u^n>,<u^n>_{>0},<u^n>_{<0},<v^m>,<\xi^l>
+        real(KREAL)                                     :: Mau0(4),MauL(4),MauR(4),MauT(4) !<u\psi>,<aL*u^n*\psi>,<aR*u^n*\psi>,<A*u*\psi>
+        real(KREAL)                                     :: tau !Collision time
+        real(KREAL)                                     :: Mt(5) !Some time integration terms
+        integer(KINT)                                   :: i,j
+
+        !--------------------------------------------------
+        !Prepare
+        !--------------------------------------------------
+        !Allocate array
+        allocate(vn(uNum,vNum))
+        allocate(vt(uNum,vNum))
+        allocate(delta(uNum,vNum))
+        allocate(h(uNum,vNum))
+        allocate(b(uNum,vNum))
+        allocate(sh(uNum,vNum))
+        allocate(sb(uNum,vNum))
+        allocate(H0(uNum,vNum))
+        allocate(B0(uNum,vNum))
+        allocate(H_plus(uNum,vNum))
+        allocate(B_plus(uNum,vNum))
+
+        !Convert the velocity space to local frame
+        vn = uSpace*face%cosx+vSpace*face%cosy
+        vt =-uSpace*face%cosy+vSpace*face%cosx
+
+        !Heaviside step function
+        delta = (sign(UP,vn)+1)/2
+
+        !--------------------------------------------------
+        !Reconstruct initial distribution at interface
+        !--------------------------------------------------
+        h = (leftCell%h+0.5*leftCell%length(idx)*leftCell%sh(:,:,idx))*delta+&
+            (rightCell%h-0.5*rightCell%length(idx)*rightCell%sh(:,:,idx))*(1-delta)
+        b = (leftCell%b+0.5*leftCell%length(idx)*leftCell%sb(:,:,idx))*delta+&
+            (rightCell%b-0.5*rightCell%length(idx)*rightCell%sb(:,:,idx))*(1-delta)
+        sh = leftCell%sh(:,:,idx)*delta+rightCell%sh(:,:,idx)*(1-delta)
+        sb = leftCell%sb(:,:,idx)*delta+rightCell%sb(:,:,idx)*(1-delta)
+
+        !--------------------------------------------------
+        !Obtain macroscopic variables
+        !--------------------------------------------------
+        !Conservative variables conVars at interface
+        conVars(1) = sum(weight*h)
+        conVars(2) = sum(weight*vn*h)
+        conVars(3) = sum(weight*vt*h)
+        conVars(4) = 0.5*(sum(weight*(vn**2+vt**2)*h)+sum(weight*b))
+
+        !Convert to primary variables
+        prim = GetPrimary(conVars)
+
+        !--------------------------------------------------
+        !Calculate a^L,a^R
+        !--------------------------------------------------
+        sw = (conVars-LocalFrame(leftCell%conVars,face%cosx,face%cosy))/(0.5*leftCell%length(idx)) !left slope of conVars
+        aL = MicroSlope(prim,sw) !Calculate a^L
+
+        sw = (LocalFrame(rightCell%conVars,face%cosx,face%cosy)-conVars)/(0.5*rightCell%length(idx)) !right slope of conVars
+        aR = MicroSlope(prim,sw) !Calculate a^R
+
+        !--------------------------------------------------
+        !Calculate time slope of conVars and A
+        !--------------------------------------------------
+        !<u^n>,<v^m>,<\xi^l>,<u^n>_{>0},<u^n>_{<0}
+        call CalcMoment(prim,Mu,Mv,Mxi,MuL,MuR) 
+
+        MauL = Moment_auvxi(aL,MuL,Mv,Mxi,1,0) !<aL*u*\psi>_{>0}
+        MauR = Moment_auvxi(aR,MuR,Mv,Mxi,1,0) !<aR*u*\psi>_{<0}
+
+        sw = -prim(1)*(MauL+MauR) !Time slope of conVars
+        aT = MicroSlope(prim,sw) !Calculate A
+
+        !--------------------------------------------------
+        !Calculate collision time and some time integration terms
+        !--------------------------------------------------
+        tau = GetTau(prim)
+
+        Mt(4) = tau*(1.0-exp(-dt/tau))
+        Mt(5) = -tau*dt*exp(-dt/tau)+tau*Mt(4)
+        Mt(1) = dt-Mt(4)
+        Mt(2) = -tau*Mt(1)+Mt(5) 
+        Mt(3) = 0.5*dt**2-tau*Mt(1)
+
+        !--------------------------------------------------
+        !Calculate the flux of conservative variables related to g0
+        !--------------------------------------------------
+        Mau0 = Moment_uvxi(Mu,Mv,Mxi,1,0,0) !<u*\psi>
+        MauL = Moment_auvxi(aL,MuL,Mv,Mxi,2,0) !<aL*u^2*\psi>_{>0}
+        MauR = Moment_auvxi(aR,MuR,Mv,Mxi,2,0) !<aR*u^2*\psi>_{<0}
+        MauT = Moment_auvxi(aT,Mu,Mv,Mxi,1,0) !<A*u*\psi>
+
+        face%flux = Mt(1)*prim(1)*Mau0+Mt(2)*prim(1)*(MauL+MauR)+Mt(3)*prim(1)*MauT
+
+        !--------------------------------------------------
+        !Calculate the flux of conservative variables related to g+ and f0
+        !--------------------------------------------------
+        !Maxwellian distribution H0 and B0
+        call DiscreteMaxwell(H0,B0,vn,vt,prim)
+    
+        !Calculate heat flux
+        qf = GetHeatFlux(h,b,vn,vt,prim) 
+
+        !Shakhov part H+ and B+
+        call ShakhovPart(H0,B0,vn,vt,qf,prim,H_plus,B_plus)
+
+        !Conservative flux related to g+ and f0
+        face%flux(1) = face%flux(1)+Mt(1)*sum(weight*vn*H_plus)+Mt(4)*sum(weight*vn*h)-Mt(5)*sum(weight*vn**2*sh)
+        face%flux(2) = face%flux(2)+Mt(1)*sum(weight*vn*vn*H_plus)+Mt(4)*sum(weight*vn*vn*h)-Mt(5)*sum(weight*vn*vn**2*sh)
+        face%flux(3) = face%flux(3)+Mt(1)*sum(weight*vt*vn*H_plus)+Mt(4)*sum(weight*vt*vn*h)-Mt(5)*sum(weight*vt*vn**2*sh)
+        face%flux(4) = face%flux(4)+&
+                        Mt(1)*0.5*(sum(weight*vn*(vn**2+vt**2)*H_plus)+sum(weight*vn*B_plus))+&
+                        Mt(4)*0.5*(sum(weight*vn*(vn**2+vt**2)*h)+sum(weight*vn*b))-&
+                        Mt(5)*0.5*(sum(weight*vn**2*(vn**2+vt**2)*sh)+sum(weight*vn**2*sb))
+
+        !--------------------------------------------------
+        !Calculate flux of distribution function
+        !--------------------------------------------------
+        face%flux_h = Mt(1)*vn*(H0+H_plus)+&
+                        Mt(2)*vn**2*(aL(1)*H0+aL(2)*vn*H0+aL(3)*vt*H0+0.5*aL(4)*((vn**2+vt**2)*H0+B0))*delta+&
+                        Mt(2)*vn**2*(aR(1)*H0+aR(2)*vn*H0+aR(3)*vt*H0+0.5*aR(4)*((vn**2+vt**2)*H0+B0))*(1-delta)+&
+                        Mt(3)*vn*(aT(1)*H0+aT(2)*vn*H0+aT(3)*vt*H0+0.5*aT(4)*((vn**2+vt**2)*H0+B0))+&
+                        Mt(4)*vn*h-Mt(5)*vn**2*sh
+
+        face%flux_b = Mt(1)*vn*(B0+B_plus)+&
+                        Mt(2)*vn**2*(aL(1)*B0+aL(2)*vn*B0+aL(3)*vt*B0+0.5*aL(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))*delta+&
+                        Mt(2)*vn**2*(aR(1)*B0+aR(2)*vn*B0+aR(3)*vt*B0+0.5*aR(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))*(1-delta)+&
+                        Mt(3)*vn*(aT(1)*B0+aT(2)*vn*B0+aT(3)*vt*B0+0.5*aT(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
+                        Mt(4)*vn*b-Mt(5)*vn**2*sb
+        
+        !--------------------------------------------------
+        !Final flux
+        !--------------------------------------------------
+        !Convert to global frame
+        face%flux = GlobalFrame(face%flux,face%cosx,face%cosy) 
+        !Total flux
+        face%flux = face%length*face%flux
+        face%flux_h = face%length*face%flux_h
+        face%flux_b = face%length*face%flux_b
+
+        
+        !--------------------------------------------------
+        !Aftermath
+        !--------------------------------------------------
+        !Deallocate array
+        deallocate(vn)
+        deallocate(vt)
+        deallocate(delta)
+        deallocate(h)
+        deallocate(b)
+        deallocate(sh)
+        deallocate(sb)
+        deallocate(H0)
+        deallocate(B0)
+        deallocate(H_plus)
+        deallocate(B_plus)
+    end subroutine CalcFlux_DirectionSplitting
+
     !--------------------------------------------------
     !>Calculate flux of boundary interface, assuming left wall
     !>@param[in]    bc   :boundary condition
@@ -1127,91 +1313,140 @@ contains
         !--------------------------------------------------
         !Calculate interface conVars for b_slope calculation
         !--------------------------------------------------
-        !Inner part
-        !$omp parallel
-        !$omp do
-        do j=IYMIN,IYMAX
-            do i=IXMIN+1,IXMAX
-                call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j))
+        if (FLUX_TYPE==MULTIDIMENSION) then
+            !Inner part
+            !$omp parallel
+            !$omp do
+            do j=IYMIN,IYMAX
+                do i=IXMIN+1,IXMAX
+                    call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j))
+                end do
             end do
-        end do
-        !$omp end do nowait
+            !$omp end do nowait
 
-        !Inner part
-        !$omp do
-        do j=IYMIN+1,IYMAX
-            do i=IXMIN,IXMAX
-                call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j))
+            !Inner part
+            !$omp do
+            do j=IYMIN+1,IYMAX
+                do i=IXMIN,IXMAX
+                    call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j))
+                end do
             end do
-        end do
-        !$omp end do nowait
-        !$omp end parallel
+            !$omp end do nowait
+            !$omp end parallel
+        end if
 
         !--------------------------------------------------
         !Calculate interface flux
         !--------------------------------------------------
+        if (FLUX_TYPE==MULTIDIMENSION) then
+            !--------------------------------------------------
+            !i direction
+            !--------------------------------------------------
+            !Boundary part
+            !$omp parallel
+            !$omp do
+            do j=IYMIN,IYMAX
+                call CalcFluxBoundary(BC_W,vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN) !RN means no frame rotation
+                call CalcFluxBoundary(BC_E,vface(IXMAX+1,j),ctr(IXMAX,j),IDIRC,RY) !RY means with frame rotation
+            end do
+            !$omp end do nowait
 
-        !--------------------------------------------------
-        !i direction
-        !--------------------------------------------------
-        !Boundary part
-        !$omp parallel
-        !$omp do
-        do j=IYMIN,IYMAX
-            call CalcFluxBoundary(BC_W,vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN) !RN means no frame rotation
-            call CalcFluxBoundary(BC_E,vface(IXMAX+1,j),ctr(IXMAX,j),IDIRC,RY) !RY means with frame rotation
-        end do
-        !$omp end do nowait
-
-        !Inner part
-        !$omp do
-        do j=IYMIN+1,IYMAX-1
+            !Inner part
+            !$omp do
+            do j=IYMIN+1,IYMAX-1
+                do i=IXMIN+1,IXMAX
+                    call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC,vface(i,j+1),vface(i,j-1),1) !idb=1, not boundary, full central differcence for b_slope
+                end do
+            end do
+            !$omp end do nowait
+            !$omp do
             do i=IXMIN+1,IXMAX
-                call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC,vface(i,j+1),vface(i,j-1),1) !idb=1, not boundary, full central differcence for b_slope
+                call CalcFlux(ctr(i-1,IYMIN),vface(i,IYMIN),ctr(i,IYMIN),IDIRC,vface(i,IYMIN+1),vface(i,IYMIN),0) !idb=0, boundary, half central difference for b_slope
             end do
-        end do
-        !$omp end do nowait
-        !$omp do
-        do i=IXMIN+1,IXMAX
-            call CalcFlux(ctr(i-1,IYMIN),vface(i,IYMIN),ctr(i,IYMIN),IDIRC,vface(i,IYMIN+1),vface(i,IYMIN),0) !idb=0, boundary, half central difference for b_slope
-        end do
-        !$omp end do nowait
-        !$omp do
-        do i=IXMIN+1,IXMAX
-            call CalcFlux(ctr(i-1,IYMAX),vface(i,IYMAX),ctr(i,IYMAX),IDIRC,vface(i,IYMAX),vface(i,IYMAX-1),0) !idb=0, boundary, half central difference for b_slope
-        end do
-        !$omp end do nowait
-
-        !--------------------------------------------------
-        !j direction
-        !--------------------------------------------------
-        !Boundary part
-        !$omp do
-        do i=IXMIN,IXMAX
-            call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN) !RN means no frame rotation
-            call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY) !RY means with frame rotation 
-        end do
-        !$omp end do nowait
-
-        !Inner part
-        !$omp do
-        do j=IYMIN+1,IYMAX
-            do i=IXMIN+1,IXMAX-1
-                call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC,hface(i-1,j),hface(i+1,j),1) !idb=1, not boundary, full central differcence for b_slope
+            !$omp end do nowait
+            !$omp do
+            do i=IXMIN+1,IXMAX
+                call CalcFlux(ctr(i-1,IYMAX),vface(i,IYMAX),ctr(i,IYMAX),IDIRC,vface(i,IYMAX),vface(i,IYMAX-1),0) !idb=0, boundary, half central difference for b_slope
             end do
-        end do
-        !$omp end do nowait
-        !$omp do
-        do j=IYMIN+1,IYMAX
-                call CalcFlux(ctr(IXMIN,j-1),hface(IXMIN,j),ctr(IXMIN,j),JDIRC,hface(IXMIN,j),hface(IXMIN+1,j),0) !idb=0, boundary, half central difference for b_slope
-        end do
-        !$omp end do nowait
-        !$omp do
-        do j=IYMIN+1,IYMAX
-                call CalcFlux(ctr(IXMAX,j-1),hface(IXMAX,j),ctr(IXMAX,j),JDIRC,hface(IXMAX-1,j),hface(IXMAX,j),0) !idb=0, boundary, half central difference for b_slope
-        end do
-        !$omp end do nowait
-        !$omp end parallel
+            !$omp end do nowait
+
+            !--------------------------------------------------
+            !j direction
+            !--------------------------------------------------
+            !Boundary part
+            !$omp do
+            do i=IXMIN,IXMAX
+                call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN) !RN means no frame rotation
+                call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY) !RY means with frame rotation 
+            end do
+            !$omp end do nowait
+
+            !Inner part
+            !$omp do
+            do j=IYMIN+1,IYMAX
+                do i=IXMIN+1,IXMAX-1
+                    call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC,hface(i-1,j),hface(i+1,j),1) !idb=1, not boundary, full central differcence for b_slope
+                end do
+            end do
+            !$omp end do nowait
+            !$omp do
+            do j=IYMIN+1,IYMAX
+                    call CalcFlux(ctr(IXMIN,j-1),hface(IXMIN,j),ctr(IXMIN,j),JDIRC,hface(IXMIN,j),hface(IXMIN+1,j),0) !idb=0, boundary, half central difference for b_slope
+            end do
+            !$omp end do nowait
+            !$omp do
+            do j=IYMIN+1,IYMAX
+                    call CalcFlux(ctr(IXMAX,j-1),hface(IXMAX,j),ctr(IXMAX,j),JDIRC,hface(IXMAX-1,j),hface(IXMAX,j),0) !idb=0, boundary, half central difference for b_slope
+            end do
+            !$omp end do nowait
+            !$omp end parallel
+        elseif (FLUX_TYPE==SPLITTING) then
+            !--------------------------------------------------
+            !i direction
+            !--------------------------------------------------
+            
+            !Boundary part
+            !$omp parallel
+            !$omp do
+            do j=IYMIN,IYMAX
+                call CalcFluxBoundary(BC_W,vface(IXMIN,j),ctr(IXMIN,j),IDIRC,RN) !RN means no frame rotation
+                call CalcFluxBoundary(BC_E,vface(IXMAX+1,j),ctr(IXMAX,j),IDIRC,RY) !RY means with frame rotation
+            end do
+            !$omp end do nowait
+
+            !Inner part
+            !$omp do
+            do j=IYMIN,IYMAX
+                do i=IXMIN+1,IXMAX
+                    call CalcFlux(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
+                end do
+            end do
+            !$omp end do nowait
+
+            !--------------------------------------------------
+            !j direction
+            !--------------------------------------------------
+
+            !Boundary part
+            !$omp do
+            do i=IXMIN,IXMAX
+                call CalcFluxBoundary(BC_S,hface(i,IYMIN),ctr(i,IYMIN),JDIRC,RN) !RN means no frame rotation
+                call CalcFluxBoundary(BC_N,hface(i,IYMAX+1),ctr(i,IYMAX),JDIRC,RY) !RY means with frame rotation 
+            end do
+            !$omp end do nowait
+
+            !Inner part
+            !$omp do
+            do j=IYMIN+1,IYMAX
+                do i=IXMIN,IXMAX
+                    call CalcFlux(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
+                end do
+            end do
+            !$omp end do nowait
+            !$omp end parallel
+        else
+            stop "Error in FLUX_TYPE!"
+        end if
     end subroutine Evolution
 
     !--------------------------------------------------
