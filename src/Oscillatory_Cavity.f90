@@ -124,7 +124,7 @@ module ControlParameters
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
     integer(KINT), parameter                            :: FLUX_TYPE = MULTIDIMENSION
-    real(KREAL), parameter                              :: CFL = 0.3 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 500000000 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-7 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -141,20 +141,23 @@ module ControlParameters
     integer(KINT), parameter                            :: RESFILE = 22 !Residual file ID
 
     !Gas propeties
-    integer(KINT), parameter                            :: CK = 0 !Internal degree of freedom, here 1 denotes monatomic gas
+    integer(KINT), parameter                            :: CK = 1 !Internal degree of freedom, here 1 denotes monatomic gas
     real(KREAL), parameter                              :: GAMMA = real(CK+4,KREAL)/real(CK+2,KREAL) !Ratio of specific heat
-    real(KREAL), parameter                              :: OMEGA = 0.0 !Temperature dependence index in HS/VHS/VSS model
+    real(KREAL), parameter                              :: OMEGA = 0.5 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
+    real(KREAL), parameter                              :: MA = 0.1 !Mach number
+    real(KREAL), parameter                              :: ST = 2.0 !Strouhal number
+    real(KREAL), parameter                              :: FRE = ST !Frequency omega
 
     ! MU_REF determined by Kn number
-    ! real(KREAL), parameter                              :: KN = 10 !Knudsen number in reference state
-    ! real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
-    ! real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
-    ! real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
+    real(KREAL), parameter                              :: KN = 10 !Knudsen number in reference state
+    real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
+    real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
+    real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
 
     ! MU_REF determined by Re number
-    real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
-    real(KREAL), parameter                              :: MU_REF = 0.15/Re !Viscosity coefficient in reference state
+    ! real(KREAL), parameter                              :: Re = 1000 !Reynolds number in reference state
+    ! real(KREAL), parameter                              :: MU_REF = 0.15/Re !Viscosity coefficient in reference state
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
@@ -204,10 +207,11 @@ module ControlParameters
     !          ------------
     !              South
     !------------------------------
+    real(KREAL), parameter                              :: U0 = MA*sqrt(GAMMA/2.0)
     real(KREAL), parameter, dimension(4)                :: BC_W = [1.0, 0.0, 0.0, 1.0] !West boundary
     real(KREAL), parameter, dimension(4)                :: BC_E = [1.0, 0.0, 0.0, 1.0] !East boundary
     real(KREAL), parameter, dimension(4)                :: BC_S = [1.0, 0.0, 0.0, 1.0] !South boundary
-    real(KREAL), parameter, dimension(4)                :: BC_N = [1.0, 0.15, 0.0, 1.0] !North boundary
+    real(KREAL), dimension(4)                           :: BC_N = [1.0, U0,  0.0, 1.0] !North boundary
 end module ControlParameters
 
 !--------------------------------------------------
@@ -1154,38 +1158,8 @@ contains
         real(KREAL)                                     :: tMax !Max 1/dt allowed
         integer(KINT)                                   :: i,j
         
-        !Set initial value
-        tMax = 0.0
-
-        !$omp parallel 
-        !$omp do private(i,j,sos,prim) reduction(max:tmax)
-        do j=IYMIN,IYMAX
-            do i=IXMIN,IXMAX
-                !Convert conservative variables to primary variables
-                prim = GetPrimary(ctr(i,j)%conVars)
-
-                !Get sound speed
-                sos = GetSoundSpeed(prim)
-
-                !Maximum velocity
-                !------------- For large Knudsen number ------------
-                ! prim(2) = max(U_MAX,abs(prim(2))+sos)
-                ! prim(3) = max(V_MAX,abs(prim(3))+sos)
-
-                !------------- For large Reynolds number -----------
-                prim(2) = abs(prim(2))+sos
-                prim(3) = abs(prim(3))+sos
-
-                !Maximum 1/dt allowed
-                tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
-
-            end do
-        end do
-        !$omp end do
-        !$omp end parallel
-        
         !Time step
-        dt = CFL/tMax
+        dt = CFL*min(ctr(IXMIN,IYMIN)%length(1),ctr(IXMIN,IYMIN)%length(2))/max(U_MAX,V_MAX)
     end subroutine TimeStep
 
     !--------------------------------------------------
@@ -1310,6 +1284,7 @@ contains
     subroutine Evolution()
         integer(KINT)                                   :: i,j
         
+        BC_N(2) = U0*cos(FRE*simTime) !North boundary
         !--------------------------------------------------
         !Calculate interface conVars for b_slope calculation
         !--------------------------------------------------
