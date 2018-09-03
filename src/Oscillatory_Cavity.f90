@@ -118,7 +118,7 @@ module ControlParameters
     !--------------------------------------------------
     !Variables to control the simulation
     !--------------------------------------------------
-    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
+    integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = LIMITER
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
@@ -129,6 +129,7 @@ module ControlParameters
     real(KREAL), parameter                              :: EPS = 1.0E-7 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
     integer(KINT)                                       :: iter = 1 !Number of iteration
+    integer(KINT)                                       :: num_period = -1 !Number of accumulative oscillatory period
     real(KREAL)                                         :: dt !Global time step
     real(KREAL)                                         :: res(4) !Residual
     
@@ -148,9 +149,10 @@ module ControlParameters
     real(KREAL), parameter                              :: MA = 0.1 !Mach number
     real(KREAL), parameter                              :: ST = 2.0 !Strouhal number
     real(KREAL), parameter                              :: FRE = ST !Frequency omega
+    real(KREAL), parameter                              :: TT = 2.0*PI/FRE !Peroid of Oscillation
 
     ! MU_REF determined by Kn number
-    real(KREAL), parameter                              :: KN = 10 !Knudsen number in reference state
+    real(KREAL), parameter                              :: KN = 0.1 !Knudsen number in reference state
     real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
     real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
     real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
@@ -1147,21 +1149,9 @@ end module Flux
 module Solver
     use Flux
     implicit none
+    real(KREAL)                                         :: old_sumRes(4) = 0.0
 
 contains
-    !--------------------------------------------------
-    !>Calculate time step
-    !--------------------------------------------------
-    subroutine TimeStep()
-        real(KREAL)                                     :: prim(4) !Primary variables
-        real(KREAL)                                     :: sos !Speed of sound
-        real(KREAL)                                     :: tMax !Max 1/dt allowed
-        integer(KINT)                                   :: i,j
-        
-        !Time step
-        dt = CFL*min(ctr(IXMIN,IYMIN)%length(1),ctr(IXMIN,IYMIN)%length(2))/max(U_MAX,V_MAX)
-    end subroutine TimeStep
-
     !--------------------------------------------------
     !>Interpolation of the boundary cell
     !>@param[inout] targetCell    :the target boundary cell
@@ -1435,7 +1425,7 @@ contains
         real(KREAL)                                     :: tau_old,tau !Collision time at t^n and t^{n+1}
         real(KREAL)                                     :: qf(2)
         real(KREAL)                                     :: sumRes(4),sumAvg(4)
-        integer(KINT)                                   :: i,j
+        integer(KINT)                                   :: i,j,on
 
         !Allocate arrays
         allocate(H_old(uNum,vNum))
@@ -1446,9 +1436,14 @@ contains
         allocate(B_plus(uNum,vNum))
 
         !set initial value
-        res = 0.0
-        sumRes = 0.0
-        sumAvg = 0.0
+        if (floor(simTime/TT)>num_period) then
+            res = 0.0
+            sumRes = 0.0
+            sumAvg = 0.0
+            on = 1
+        else
+            on = 0
+        end if
 
         do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX
@@ -1472,9 +1467,11 @@ contains
                 !--------------------------------------------------
                 !Record residual
                 !--------------------------------------------------
-                sumRes = sumRes+((conVars_old-ctr(i,j)%conVars)*ctr(i,j)%area)**2
-                sumAvg = sumAvg+abs(ctr(i,j)%conVars)*ctr(i,j)%area
-            
+                if (on==1) then
+                    sumRes = sumRes+ctr(i,j)%conVars
+                    sumAvg = sumAvg+abs(ctr(i,j)%conVars)
+                end if
+
                 !--------------------------------------------------
                 !Shakhov part
                 !--------------------------------------------------
@@ -1494,11 +1491,6 @@ contains
                 !--------------------------------------------------
                 !Update distribution function
                 !--------------------------------------------------
-                ! ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
-                !                     0.5*dt*(H/tau+(H_old-ctr(i,j)%h)/tau_old))/(1.0+0.5*dt/tau)
-                ! ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
-                !                     0.5*dt*(B/tau+(B_old-ctr(i,j)%b)/tau_old))/(1.0+0.5*dt/tau)
-
                 ctr(i,j)%h = (ctr(i,j)%h+(vface(i,j)%flux_h-vface(i+1,j)%flux_h+hface(i,j)%flux_h-hface(i,j+1)%flux_h)/ctr(i,j)%area+&
                                 dt*(H/tau*(1-exp(-dt/tau))+(H_old-ctr(i,j)%h)/tau_old*exp(-dt/tau)))/(1.0+dt/tau*(1-exp(-dt/tau)))
                 ctr(i,j)%b = (ctr(i,j)%b+(vface(i,j)%flux_b-vface(i+1,j)%flux_b+hface(i,j)%flux_b-hface(i,j+1)%flux_b)/ctr(i,j)%area+&
@@ -1507,8 +1499,12 @@ contains
         end do
 
         !Calculate final residual
-        res = sqrt(N_GRID*sumRes)/(sumAvg+SMV)/dt
-        
+        if (on==1) then
+            res = abs(sumRes-old_sumRes)/(sumAvg+SMV)
+            old_sumRes = sumRes
+            num_period = num_period+1
+        end if
+
         !Deallocate arrays
         deallocate(H_old)
         deallocate(B_old)
@@ -1536,6 +1532,7 @@ contains
         call InitVelocity() !Initialize uSpace, vSpace and weights
         call InitAllocation(uNum,vNum) !Allocate discrete velocity space
         call InitFlowField() !Set the initial value
+        dt = CFL*min(ctr(IXMIN,IYMIN)%length(1),ctr(IXMIN,IYMIN)%length(2))/max(U_MAX,V_MAX)
     end subroutine Init
     
     subroutine InitVelocity()
@@ -2113,6 +2110,7 @@ program Oscillatory_Cavity
     use Writer
     implicit none
     real(KREAL)                                         :: start, finish
+    integer(KINT)                                       :: old_num_period = -1
     
     !Initialization
     call Init()
@@ -2133,7 +2131,6 @@ program Oscillatory_Cavity
 
     !Iteration
     do while(.true.)
-        call TimeStep() !Calculate the time step
         call Reconstruction() !Calculate the slope of distribution function
         call Evolution() !Calculate flux across the interfaces
         call Update() !Update cell averaged value
@@ -2142,18 +2139,25 @@ program Oscillatory_Cavity
         if(all(res<EPS) .or. iter>=MAX_ITER) exit
 
         !Log the iteration situation every 10 iterations
-        if (mod(iter,10)==0) then
-            write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
+        if (old_num_period<num_period) then
+            write(*,"(A28,I15,2E15.7,I8)") "iter,simTime,dt,num_period:",iter,simTime,dt,num_period
             write(*,"(A18,4E15.7)") "res:",res
-            write(HSTFILE,"(I15,2E15.7)") iter,simTime,dt
+            write(HSTFILE,"(I15,2E15.7,I8)") iter,simTime,dt,num_period
 
             !Output the residual curve
             open(unit=RESFILE,file=RESFILENAME//trim(fileName)//'_residual.dat',status="old",action="write",position="append") !Open residual file
-            write(RESFILE,"(I15,4E15.7)") iter,res
+            write(RESFILE,"(I15,4E15.7)") iter,res,num_period
             close(RESFILE)
+            old_num_period = num_period
         end if
 
-        if (mod(iter,500)==1) then
+        if (num_period*TT<=simTime .and. simTime<num_period*TT+dt) then
+            call Output()
+        elseif (num_period*TT+0.25*TT<=simTime .and. simTime<num_period*TT+0.25*TT+dt) then
+            call Output()
+        elseif (num_period*TT+0.5*TT<=simTime .and. simTime<num_period*TT+0.5*TT+dt) then
+            call Output()
+        elseif (num_period*TT+0.75*TT<=simTime .and. simTime<num_period*TT+0.75*TT+dt) then
             call Output()
         end if
 
