@@ -150,6 +150,7 @@ module ControlParameters
     real(KREAL), parameter                              :: ST = 2.0 !Strouhal number
     real(KREAL), parameter                              :: FRE = ST !Frequency omega
     real(KREAL), parameter                              :: TT = 2.0*PI/FRE !Peroid of Oscillation
+    ! real(KREAL), parameter                              :: TT = 1.0E8
 
     ! MU_REF determined by Kn number
     real(KREAL), parameter                              :: KN = 0.1 !Knudsen number in reference state
@@ -347,6 +348,20 @@ contains
         GetHeatFlux(1) = 0.5*(sum(weight*(vn-prim(2))*((vn-prim(2))**2+(vt-prim(3))**2)*h)+sum(weight*(vn-prim(2))*b))
         GetHeatFlux(2) = 0.5*(sum(weight*(vt-prim(3))*((vn-prim(2))**2+(vt-prim(3))**2)*h)+sum(weight*(vt-prim(3))*b))
     end function GetHeatFlux
+
+    !--------------------------------------------------
+    !>Calculate shear stress
+    !>@param[in] h                  :distribution function
+    !>@param[in] prim               :primary variables
+    !>@return    GetShearStress     :shear stress sigma_xy
+    !--------------------------------------------------
+    function GetShearStress(h,prim)
+        real(KREAL), dimension(:,:), intent(in)         :: h
+        real(KREAL), intent(in)                         :: prim(4)
+        real(KREAL)                                     :: GetShearStress !stress in normal direction
+        
+        GetShearStress = sum(weight*(uSpace-prim(2))*(vSpace-prim(3))*h)
+    end function GetShearStress
 
     !--------------------------------------------------
     !>Calculate the Shakhov part H^+, B^+
@@ -1436,11 +1451,16 @@ contains
         allocate(B_plus(uNum,vNum))
 
         !set initial value
-        if (floor(simTime/TT)>num_period) then
+        if (floor(simTime/TT)>num_period .and. ST>SMV) then
             res = 0.0
             sumRes = 0.0
             sumAvg = 0.0
             on = 1
+        elseif (ST<=SMV) then
+            res = 0.0
+            sumRes = 0.0
+            sumAvg = 0.0
+            on = 2
         else
             on = 0
         end if
@@ -1469,6 +1489,9 @@ contains
                 !--------------------------------------------------
                 if (on==1) then
                     sumRes = sumRes+ctr(i,j)%conVars
+                    sumAvg = sumAvg+abs(ctr(i,j)%conVars)
+                elseif (on==2) then
+                    sumRes = sumRes+ctr(i,j)%conVars-conVars_old
                     sumAvg = sumAvg+abs(ctr(i,j)%conVars)
                 end if
 
@@ -1503,6 +1526,8 @@ contains
             res = abs(sumRes-old_sumRes)/(sumAvg+SMV)
             old_sumRes = sumRes
             num_period = num_period+1
+        elseif (on==2) then
+            res = abs(sumRes)/(sumAvg+SMV)
         end if
 
         !Deallocate arrays
@@ -2031,7 +2056,7 @@ contains
         !--------------------------------------------------
         !Prepare solutions
         !--------------------------------------------------
-        allocate(solution(7,IXMIN:IXMAX,IYMIN:IYMAX))
+        allocate(solution(8,IXMIN:IXMAX,IYMIN:IYMAX))
         
         do j=IYMIN,IYMAX
             do i=IXMIN,IXMAX
@@ -2040,6 +2065,7 @@ contains
                 solution(4,i,j) = 1/prim(4) !Temperature
                 solution(5,i,j) = GetPressure(ctr(i,j)%h,ctr(i,j)%b,uSpace,vSpace,prim) !Pressure
                 solution(6:7,i,j) = GetHeatFlux(ctr(i,j)%h,ctr(i,j)%b,uSpace,vSpace,prim) !Heat flux
+                solution(8,i,j) = GetShearStress(ctr(i,j)%h,prim)
             end do
         end do
 
@@ -2054,11 +2080,11 @@ contains
         open(unit=RSTFILE,file=RSTFILENAME//trim(fileName)//'_'//trim(adjustl(str))//'.dat',status="replace",action="write")
         
         !Write header
-        write(RSTFILE,*) "VARIABLES = X, Y, Density, U, V, T, P, QX, QY"
+        write(RSTFILE,*) "VARIABLES = X, Y, Density, U, V, T, P, QX, QY, Sigma_xy"
 
         select case(OUTPUT_METHOD)
             case(CENTER)
-                write(RSTFILE,*) "ZONE  I = ",IXMAX-IXMIN+2,", J = ",IYMAX-IYMIN+2,"DATAPACKING=BLOCK, VARLOCATION=([3-9]=CELLCENTERED)"
+                write(RSTFILE,*) "ZONE  I = ",IXMAX-IXMIN+2,", J = ",IYMAX-IYMIN+2,"DATAPACKING=BLOCK, VARLOCATION=([3-10]=CELLCENTERED)"
 
                 !write geometry (node value)
                 write(RSTFILE,"(6(ES23.16,2X))") geometry%x
@@ -2072,7 +2098,7 @@ contains
         end select
 
         !Write solution (cell-centered)
-        do i=1,7
+        do i=1,8
             write(RSTFILE,"(6(ES23.16,2X))") solution(i,:,:)
         end do
 
@@ -2082,23 +2108,93 @@ contains
         !Write central line
         mid = (IXMIN+IXMAX)/2
         open(unit=1,file='Y-U.plt',status="replace",action="write")
-            write(1,*) 0.0,0.0
             do j=IYMIN,IYMAX
-                write(1,*)  ctr(mid,j)%y,solution(2,mid,j)/0.15
+                write(1,*) solution(2,mid,j)/U0,ctr(mid,j)%y
             end do
-            write(1,*) 1.0,1.0
 
-        mid = (IYMIN+IYMAX)/2
-        open(unit=1,file='X-V.plt',status="replace",action="write")
-            write(1,*) 0.0,0.0
-            do i=IXMIN,IXMAX
-                write(1,*)  ctr(i,mid)%x,solution(3,i,mid)/0.15
+        open(unit=1,file='Y-Sigma_xy.plt',status="replace",action="write")
+            do j=IYMIN,IYMAX
+                write(1,*) solution(8,mid,j)/U0,ctr(mid,j)%y
             end do
-            write(1,*) 1.0,0.0
         close(1)
 
         deallocate(solution)
     end subroutine Output
+
+    subroutine OutputPeriod()
+        real(KREAL)                                     :: prim(4)
+        real(KREAL), dimension(:,:,:), allocatable      :: solution
+        integer(KINT)                                   :: i,j,mid
+        character(len=20)                               :: str,str1
+
+        !--------------------------------------------------
+        !Prepare solutions
+        !--------------------------------------------------
+        allocate(solution(8,IXMIN:IXMAX,IYMIN:IYMAX))
+        
+        do j=IYMIN,IYMAX
+            do i=IXMIN,IXMAX
+                prim = GetPrimary(ctr(i,j)%conVars)
+                solution(1:3,i,j) = prim(1:3) !Density,u,v
+                solution(4,i,j) = 1/prim(4) !Temperature
+                solution(5,i,j) = GetPressure(ctr(i,j)%h,ctr(i,j)%b,uSpace,vSpace,prim) !Pressure
+                solution(6:7,i,j) = GetHeatFlux(ctr(i,j)%h,ctr(i,j)%b,uSpace,vSpace,prim) !Heat flux
+                solution(8,i,j) = GetShearStress(ctr(i,j)%h,prim)
+            end do
+        end do
+
+        !--------------------------------------------------
+        !Write to file
+        !--------------------------------------------------
+        !Open result file and write header
+        !Using keyword arguments
+        write(str , *) iter
+        write(str1,*) num_period
+
+        !Open result file
+        open(unit=RSTFILE,file=RSTFILENAME//trim(fileName)//'_'//trim(adjustl(str1))//'_'//trim(adjustl(str))//'.dat',status="replace",action="write")
+        
+        !Write header
+        write(RSTFILE,*) "VARIABLES = X, Y, Density, U, V, T, P, QX, QY, Sigma_xy"
+
+        select case(OUTPUT_METHOD)
+            case(CENTER)
+                write(RSTFILE,*) "ZONE  I = ",IXMAX-IXMIN+2,", J = ",IYMAX-IYMIN+2,"DATAPACKING=BLOCK, VARLOCATION=([3-10]=CELLCENTERED)"
+
+                !write geometry (node value)
+                write(RSTFILE,"(6(ES23.16,2X))") geometry%x
+                write(RSTFILE,"(6(ES23.16,2X))") geometry%y
+            case(POINTS)
+                write(RSTFILE,*) "ZONE  I = ",IXMAX-IXMIN+1,", J = ",IYMAX-IYMIN+1,"DATAPACKING=BLOCK"
+
+                !write geometry (cell centered value)
+                write(RSTFILE,"(6(ES23.16,2X))") ctr%x
+                write(RSTFILE,"(6(ES23.16,2X))") ctr%y
+        end select
+
+        !Write solution (cell-centered)
+        do i=1,8
+            write(RSTFILE,"(6(ES23.16,2X))") solution(i,:,:)
+        end do
+
+        !close file
+        close(RSTFILE)
+
+        !Write central line
+        mid = (IXMIN+IXMAX)/2
+        open(unit=1,file='Y-U'//'_'//trim(adjustl(str1))//'_'//trim(adjustl(str))//'.plt',status="replace",action="write")
+            do j=IYMIN,IYMAX
+                write(1,*) solution(2,mid,j)/U0,ctr(mid,j)%y
+            end do
+
+        open(unit=1,file='Y-Sigma_xy'//'_'//trim(adjustl(str1))//'_'//trim(adjustl(str))//'.plt',status="replace",action="write")
+            do j=IYMIN,IYMAX
+                write(1,*) solution(8,mid,j)/U0,ctr(mid,j)%y
+            end do
+        close(1)
+
+        deallocate(solution)
+    end subroutine OutputPeriod
 end module Writer
 
 !--------------------------------------------------
@@ -2119,7 +2215,7 @@ program Oscillatory_Cavity
     call date_and_time(DATE=date,TIME=time)
     fileName = '_'//date//'_'//time(1:6)
     open(unit=HSTFILE,file=HSTFILENAME//trim(fileName)//'.hst',status="replace",action="write") !Open history file
-    write(HSTFILE,*) "VARIABLES = iter, simTime, dt" !write header
+    write(HSTFILE,*) "VARIABLES = iter, simTime, dt, num_period" !write header
 
     !Open residual file and write header
     open(unit=RESFILE,file=RESFILENAME//trim(fileName)//'_residual.dat',status="replace",action="write") !Open residual file
@@ -2137,28 +2233,44 @@ program Oscillatory_Cavity
 
         !Check stopping criterion
         if(all(res<EPS) .or. iter>=MAX_ITER) exit
+    
+        if (ST>SMV) then
+            if (old_num_period<num_period) then
+                write(*,"(A28,I15,2E15.7,I8)") "iter,simTime,dt,num_period:",iter,simTime,dt,num_period
+                write(*,"(A18,4E15.7)") "res:",res
+                write(HSTFILE,"(I15,2E15.7,I8)") iter,simTime,dt,num_period
+                old_num_period = num_period
 
-        !Log the iteration situation every 10 iterations
-        if (old_num_period<num_period) then
-            write(*,"(A28,I15,2E15.7,I8)") "iter,simTime,dt,num_period:",iter,simTime,dt,num_period
-            write(*,"(A18,4E15.7)") "res:",res
-            write(HSTFILE,"(I15,2E15.7,I8)") iter,simTime,dt,num_period
+                !Output the residual curve
+                open(unit=RESFILE,file=RESFILENAME//trim(fileName)//'_residual.dat',status="old",action="write",position="append") !Open residual file
+                write(RESFILE,"(I15,4E15.7)") iter,res
+                close(RESFILE)
+            end if
+            
+            if (num_period*TT<=simTime .and. simTime<num_period*TT+dt) then
+                call OutputPeriod()
+            elseif (num_period*TT+0.25*TT<=simTime .and. simTime<num_period*TT+0.25*TT+dt) then
+                call OutputPeriod()
+            elseif (num_period*TT+0.5*TT<=simTime .and. simTime<num_period*TT+0.5*TT+dt) then
+                call OutputPeriod()
+            elseif (num_period*TT+0.75*TT<=simTime .and. simTime<num_period*TT+0.75*TT+dt) then
+                call OutputPeriod()
+            end if
+        else
+            if (mod(iter,10)==0) then
+                write(*,"(A18,I15,2E15.7)") "iter,simTime,dt:",iter,simTime,dt
+                write(*,"(A18,4E15.7)") "res:",res
+                write(HSTFILE,"(I15,2E15.7,I8)") iter,simTime,dt,num_period
 
-            !Output the residual curve
-            open(unit=RESFILE,file=RESFILENAME//trim(fileName)//'_residual.dat',status="old",action="write",position="append") !Open residual file
-            write(RESFILE,"(I15,4E15.7)") iter,res,num_period
-            close(RESFILE)
-            old_num_period = num_period
-        end if
+                !Output the residual curve
+                open(unit=RESFILE,file=RESFILENAME//trim(fileName)//'_residual.dat',status="old",action="write",position="append") !Open residual file
+                write(RESFILE,"(I15,4E15.7)") iter,res
+                close(RESFILE)
+            end if
 
-        if (num_period*TT<=simTime .and. simTime<num_period*TT+dt) then
-            call Output()
-        elseif (num_period*TT+0.25*TT<=simTime .and. simTime<num_period*TT+0.25*TT+dt) then
-            call Output()
-        elseif (num_period*TT+0.5*TT<=simTime .and. simTime<num_period*TT+0.5*TT+dt) then
-            call Output()
-        elseif (num_period*TT+0.75*TT<=simTime .and. simTime<num_period*TT+0.75*TT+dt) then
-            call Output()
+            if (mod(iter,500)==0) then
+                call Output()
+            end if
         end if
 
         iter = iter+1
