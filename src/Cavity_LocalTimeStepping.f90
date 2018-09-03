@@ -117,8 +117,8 @@ module ControlParameters
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: BOUNDARY_TYPE = KINETIC
-    real(KREAL), parameter                              :: CFL = 0.8 !CFL number
+    integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
+    real(KREAL), parameter                              :: CFL = 0.95 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 5E8 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-6 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -152,7 +152,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 63, Y_NUM = 63 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 61, Y_NUM = 61 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -969,8 +969,8 @@ contains
                 sos = GetSoundSpeed(prim)
 
                 !Maximum velocity
-                prim(2) = max(U_MAX,abs(prim(2)))+sos
-                prim(3) = max(V_MAX,abs(prim(3)))+sos
+                prim(2) = max(U_MAX,abs(prim(2))+sos)
+                prim(3) = max(V_MAX,abs(prim(3))+sos)
 
                 !Maximum 1/dt allowed
                 tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
@@ -1473,15 +1473,22 @@ contains
     subroutine InitNonUniformMesh()
         real(KREAL)                                     :: dx(IXMIN:IXMAX),dy(IYMIN:IYMAX)
         real(KREAL)                                     :: x(IXMIN:IXMAX+1),y(IYMIN:IYMAX+1)
+        real(KREAL)                                     :: ax,ay !The larger the a, the smaller the mesh size near the walls.
         integer(KINT)                                   :: i,j
+
+        !Cell length
+        ax = 2.5
+        ay = 2.5
 
         !Cell length
         x = (/(i,i=IXMIN-1,IXMAX)/)
         y = (/(j,j=IYMIN-1,IYMAX)/)
-        x = x/IXMAX
-        y = y/IYMAX
-        x = (10.0-15.0*x+6.0*x**2)*x**3*(X_END-X_START)
-        y = (10.0-15.0*y+6.0*y**2)*y**3*(Y_END-Y_START)
+        x = x/(IXMAX-IXMIN+1)
+        y = y/(IYMAX-IYMIN+1)
+        x = 0.5+0.5*tanh(ax*(x-0.5))/tanh(ax*0.5)
+        y = 0.5+0.5*tanh(ay*(y-0.5))/tanh(ay*0.5)
+        ! x = (10.0-15.0*x+6.0*x**2)*x**3*(X_END-X_START)
+        ! y = (10.0-15.0*y+6.0*y**2)*y**3*(Y_END-Y_START)
         do i=IXMIN,IXMAX
             dx(i) = x(i+1)-x(i)
         end do
