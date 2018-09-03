@@ -147,13 +147,13 @@ module ControlParameters
     real(KREAL), parameter                              :: OMEGA = 0.5 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
     real(KREAL), parameter                              :: MA = 0.1 !Mach number
-    real(KREAL), parameter                              :: ST = 2.0 !Strouhal number
+    real(KREAL), parameter                              :: ST = 10.0 !Strouhal number
     real(KREAL), parameter                              :: FRE = ST !Frequency omega
     real(KREAL), parameter                              :: TT = 2.0*PI/FRE !Peroid of Oscillation
     ! real(KREAL), parameter                              :: TT = 1.0E8
 
     ! MU_REF determined by Kn number
-    real(KREAL), parameter                              :: KN = 0.1 !Knudsen number in reference state
+    real(KREAL), parameter                              :: KN = 0.01 !Knudsen number in reference state
     real(KREAL), parameter                              :: ALPHA_REF = 1.0 !Coefficient in VHS model
     real(KREAL), parameter                              :: OMEGA_REF = 0.5 !Coefficient in VHS model
     real(KREAL), parameter                              :: MU_REF = 5.0*(ALPHA_REF+1.0)*(ALPHA_REF+2.0)*sqrt(PI)/(4.0*ALPHA_REF*(5.0-2.0*OMEGA_REF)*(7.0-2.0*OMEGA_REF))*KN !Viscosity coefficient in reference state
@@ -164,7 +164,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 31, Y_NUM = 31 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 47, Y_NUM = 47 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -2114,7 +2114,7 @@ contains
 
         open(unit=1,file='Y-Sigma_xy.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
-                write(1,*) solution(8,mid,j)/U0,ctr(mid,j)%y
+                write(1,*) solution(8,mid,j)/U0*2.0,ctr(mid,j)%y
             end do
         close(1)
 
@@ -2189,7 +2189,7 @@ contains
 
         open(unit=1,file='Y-Sigma_xy'//'_'//trim(adjustl(str1))//'_'//trim(adjustl(str))//'.plt',status="replace",action="write")
             do j=IYMIN,IYMAX
-                write(1,*) solution(8,mid,j)/U0,ctr(mid,j)%y
+                write(1,*) solution(8,mid,j)/U0*2.0,ctr(mid,j)%y
             end do
         close(1)
 
