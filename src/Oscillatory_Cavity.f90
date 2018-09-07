@@ -171,8 +171,8 @@ module ControlParameters
     !--------------------------------------------------
     !Discrete velocity space
     !--------------------------------------------------
-    integer(KINT)                                       :: uNum = 16, vNum = 16 !Number of points in velocity space for u and v
-    real(KREAL)                                         :: U_MIN = -5.0, U_MAX = +5.0, V_MIN = -5.0, V_MAX = +5.0 !Minimum and maximum micro velocity
+    integer(KINT)                                       :: uNum = 32, vNum = 32 !Number of points in velocity space for u and v
+    real(KREAL)                                         :: U_MIN = -4.0, U_MAX = +4.0, V_MIN = -4.0, V_MAX = +4.0 !Minimum and maximum micro velocity
     real(KREAL), allocatable, dimension(:,:)            :: uSpace,vSpace !Discrete velocity space for u and v
     real(KREAL), allocatable, dimension(:,:)            :: weight !Qudrature weight for discrete points in velocity space
 
@@ -214,7 +214,7 @@ module ControlParameters
     real(KREAL), parameter, dimension(4)                :: BC_W = [1.0, 0.0, 0.0, 1.0] !West boundary
     real(KREAL), parameter, dimension(4)                :: BC_E = [1.0, 0.0, 0.0, 1.0] !East boundary
     real(KREAL), parameter, dimension(4)                :: BC_S = [1.0, 0.0, 0.0, 1.0] !South boundary
-    real(KREAL), dimension(4)                           :: BC_N = [1.0, U0,  0.0, 1.0] !North boundary
+    real(KREAL), dimension(4)                           :: BC_N = [1.0, 0.0, 0.0, 1.0] !North boundary
 end module ControlParameters
 
 !--------------------------------------------------
@@ -1870,6 +1870,12 @@ contains
                     0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
                     0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
 
+        !Set 8*8 velocity points and weight
+        ! vcoords = [ -2.930637420257244019224, -1.981656756695842925855, -1.157193712446780194721, -0.3811869902073221168547,&
+        !             0.3811869902073221168547, 1.157193712446780194721, 1.981656756695842925855, 2.930637420257244019224]
+        ! weights = [ 1.99604072211367619206E-4, 0.0170779830074134754562, 0.2078023258148918795433, 0.6611470125582412910304,&
+        !             0.6611470125582412910304, 0.2078023258148918795433, 0.0170779830074134754562, 1.996040722113676192061E-4]
+
         !set grid number for u-velocity and v-velocity
         uNum = 16
         vNum = 16
@@ -2268,7 +2274,7 @@ program Oscillatory_Cavity
                 close(RESFILE)
             end if
 
-            if (mod(iter,500)==0) then
+            if (mod(iter,1000)==0) then
                 call Output()
             end if
         end if
