@@ -1714,15 +1714,22 @@ contains
     subroutine InitNonUniformMesh()
         real(KREAL)                                     :: dx(IXMIN:IXMAX),dy(IYMIN:IYMAX)
         real(KREAL)                                     :: x(IXMIN:IXMAX+1),y(IYMIN:IYMAX+1)
+        real(KREAL)                                     :: ax,ay !The larger the a, the smaller the mesh size near the walls.
         integer(KINT)                                   :: i,j
+
+        !Cell length
+        ax = 2.5
+        ay = 2.5
 
         !Cell length
         x = (/(i,i=IXMIN-1,IXMAX)/)
         y = (/(j,j=IYMIN-1,IYMAX)/)
-        x = x/IXMAX
-        y = y/IYMAX
-        x = (10.0-15.0*x+6.0*x**2)*x**3*(X_END-X_START)
-        y = (10.0-15.0*y+6.0*y**2)*y**3*(Y_END-Y_START)
+        x = x/(IXMAX-IXMIN+1)
+        y = y/(IYMAX-IYMIN+1)
+        x = 0.5+0.5*tanh(ax*(x-0.5))/tanh(ax*0.5)
+        y = 0.5+0.5*tanh(ay*(y-0.5))/tanh(ay*0.5)
+        ! x = (10.0-15.0*x+6.0*x**2)*x**3*(X_END-X_START)
+        ! y = (10.0-15.0*y+6.0*y**2)*y**3*(Y_END-Y_START)
         do i=IXMIN,IXMAX
             dx(i) = x(i+1)-x(i)
         end do
@@ -1868,6 +1875,13 @@ contains
                     0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
                     0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
                     0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
+
+        !Set 8*8 velocity points and weight
+        ! vcoords = [ -0.2262664477010362E+1, -0.1342537825644992E+1, -0.6243246901871900E0, -0.1337764469960676E0,&
+        !             0.1337764469960676E0, 0.6243246901871900E0, 0.1342537825644992E+1, 0.2262664477010362E+1]
+
+        ! weights = [ 0.6374323486257276E-2, 0.1334425003575195E0, 0.4211071018520622E0, 0.3253029997569190E0,&
+        !             0.3253029997569190E0, 0.4211071018520622E0, 0.1334425003575195E0, 0.6374323486257276E-2]
 
         !set grid number for u-velocity and v-velocity
         uNum = 16
