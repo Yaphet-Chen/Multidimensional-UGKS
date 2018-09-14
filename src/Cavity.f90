@@ -1042,7 +1042,7 @@ contains
         real(KREAL), allocatable, dimension(:,:)        :: H_plus,B_plus !Shakhov part of the equilibrium distribution
         real(KREAL), allocatable, dimension(:,:)        :: delta !Heaviside step function
         real(KREAL)                                     :: qf(2) !Heat flux in normal and tangential direction
-        real(KREAL)                                     :: prim_w(4) !Primary variables of wall interface
+        real(KREAL)                                     :: prim_w(4),conVars(4) !Primary variables of wall interface
         real(KREAL)                                     :: prim_g(4) !Primary variables of ghost cell
         real(KREAL)                                     :: incidence,reflection
         real(KREAL)                                     :: rho_x !Derivative of g in ghost cell, contain only rho in this case
@@ -1080,12 +1080,20 @@ contains
         !Calculate primary variable of wall interface in local frame
         prim_g = LocalFrame(bc,face%cosx,face%cosy)
         prim_g(1) = 2.0*sum(weight*h*(1-delta))
-        prim_w = prim_g
-        
+
         !Set initial non-equilibrium distribution
         call DiscreteMaxwell(H_g,B_g,vn,vt,prim_g)
         h = h*(1-delta)+H_g*delta
         b = b*(1-delta)+B_g*delta
+
+        !Conservative variables conVars at wall interface
+        conVars(1) = sum(weight*h)
+        conVars(2) = sum(weight*vn*h)
+        conVars(3) = sum(weight*vt*h)
+        conVars(4) = 0.5*sum(weight*(vn**2+vt**2)*h+b)
+
+        !Convert to primary variables
+        prim_w = GetPrimary(conVars)
 
         !Calculate heat flux
         qf = GetHeatFlux(h,b,vn,vt,prim_w) 
@@ -1106,7 +1114,7 @@ contains
         !--------------------------------------------------
         !Calculate wall density and Maxwellian distribution
         !--------------------------------------------------
-        incidence = T1*sum(weight*vn*H_plus)+T4*sum(weight*vn*h)&
+        incidence = T1*sum(weight*vn*(H_w+H_plus))+T4*sum(weight*vn*h)&
                     -T5*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
         reflection = -T5*sum(weight*vn*vn*H_g*delta)
         rho_x = -incidence/reflection
@@ -1114,14 +1122,13 @@ contains
         !--------------------------------------------------
         !Calculate flux
         !--------------------------------------------------
-        face%flux(1) = T1*sum(weight*vn*H_w)+T1*sum(weight*vn*H_plus)+T4*sum(weight*vn*h)&
+        face%flux(1) = T1*sum(weight*vn*(H_w+H_plus))+T4*sum(weight*vn*h)&
                         -T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))-T5*rho_x*sum(weight*vn**2*H_g*delta)
-        face%flux(2) = T1*sum(weight*vn*vn*H_w)+T1*sum(weight*vn*vn*H_plus)+T4*sum(weight*vn*vn*h)&
+        face%flux(2) = T1*sum(weight*vn*vn*(H_w+H_plus))+T4*sum(weight*vn*vn*h)&
                         -T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))-T5*rho_x*sum(weight*vn*vn**2*H_g*delta)
-        face%flux(3) = T1*sum(weight*vn*vt*H_w)+T1*sum(weight*vt*vn*H_plus)+T4*sum(weight*vt*vn*h)&
+        face%flux(3) = T1*sum(weight*vn*vt*(H_w+H_plus))+T4*sum(weight*vt*vn*h)&
                         -T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))-T5*rho_x*sum(weight*vt*vn**2*H_g*delta)
-        face%flux(4) = T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_w+B_w))&
-                        +T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_plus+B_plus))&
+        face%flux(4) = T1*0.5*sum(weight*vn*((vn**2+vt**2)*(H_w+H_plus)+(B_w+B_plus)))&
                         +T4*0.5*sum(weight*vn*((vn**2+vt**2)*h+b))&
                         -T5*0.5*sum(weight*vn**2*((vn**2+vt**2)*cell%sh(:,:,idx)+cell%sb(:,:,idx))*(1-delta))&
                         -T5*0.5*rho_x*sum(weight*vn**2*((vn**2+vt**2)*H_g+B_g)*delta)
