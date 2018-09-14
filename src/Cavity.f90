@@ -41,6 +41,7 @@ module ConstantVariables
     !Boundary type
     integer(KINT), parameter                            :: KINETIC = 0 !Kinetic boundary condition
     integer(KINT), parameter                            :: MULTISCALE = 1 !Multiscale boundary condition
+    integer(KINT), parameter                            :: TEST1 = 2 !Test1 boundary condition
 
     !Flux type
     integer(KINT), parameter                            :: SPLITTING = 0 !Flux with direction splitting
@@ -119,12 +120,12 @@ module ControlParameters
     !Variables to control the simulation
     !--------------------------------------------------
     integer(KINT), parameter                            :: RECONSTRUCTION_METHOD = CENTRAL
-    integer(KINT), parameter                            :: MESH_TYPE = UNIFORM
+    integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
+    integer(KINT), parameter                            :: BOUNDARY_TYPE = TEST1
     integer(KINT), parameter                            :: FLUX_TYPE = MULTIDIMENSION
-    real(KREAL), parameter                              :: CFL = 0.3 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.95 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 500000000 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-7 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -158,7 +159,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 61, Y_NUM = 61 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 31, Y_NUM = 31 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -801,6 +802,8 @@ contains
             call KineticFluxBoundary(bc,face,cell,idx,rot)
         elseif (BOUNDARY_TYPE==MULTISCALE) then
             call MultiscaleFluxBoundary(bc,face,cell,idx,rot)
+        elseif (BOUNDARY_TYPE==TEST1) then
+            call TEST1_FluxBoundary(bc,face,cell,idx,rot)
         else
             stop "Error in BOUNDARY_TYPE!"
         end if
@@ -1026,6 +1029,130 @@ contains
         deallocate(B_w)
     end subroutine MultiscaleFluxBoundary
 
+    subroutine TEST1_FluxBoundary(bc,face,cell,idx,rot)
+        real(KREAL), intent(in)                         :: bc(4) !Primary variables at boundary
+        type(CellInterface), intent(inout)              :: face
+        type(CellCenter), intent(in)                    :: cell
+        integer(KINT), intent(in)                       :: idx
+        real(KREAL), intent(in)                         :: rot
+        real(KREAL), allocatable, dimension(:,:)        :: vn,vt !Normal and tangential micro velocity
+        real(KREAL), allocatable, dimension(:,:)        :: h,b !Reduced non-equlibrium distribution function at interface
+        real(KREAL), allocatable, dimension(:,:)        :: H_g,B_g !Maxwellian distribution function g_{i+1/2}
+        real(KREAL), allocatable, dimension(:,:)        :: H_w,B_w !Maxwellian distribution function at the wall
+        real(KREAL), allocatable, dimension(:,:)        :: H_plus,B_plus !Shakhov part of the equilibrium distribution
+        real(KREAL)                                     :: qf(2) !Heat flux in normal and tangential direction
+        real(KREAL), allocatable, dimension(:,:)        :: delta !Heaviside step function
+        real(KREAL)                                     :: prim(4)
+        real(KREAL)                                     :: prim_g(4) !Primary variables of g_{i+1/2}
+        real(KREAL)                                     :: prim_w(4) !boundary condition in local frame
+        real(KREAL)                                     :: incidence,reflection
+        real(KREAL)                                     :: tau,T1,T4,T5 !Some time integration coefficients
+
+        !--------------------------------------------------
+        !prepare
+        !--------------------------------------------------
+        !allocate array
+        allocate(vn(uNum,vNum))
+        allocate(vt(uNum,vNum))
+        allocate(delta(uNum,vNum))
+        allocate(h(uNum,vNum))
+        allocate(b(uNum,vNum))
+        allocate(H_g(uNum,vNum))
+        allocate(B_g(uNum,vNum))
+        allocate(H_w(uNum,vNum))
+        allocate(B_w(uNum,vNum))
+        allocate(H_plus(uNum,vNum))
+        allocate(B_plus(uNum,vNum))
+
+        !Convert the micro velocity to local frame
+        vn = uSpace*face%cosx+vSpace*face%cosy
+        vt =-uSpace*face%cosy+vSpace*face%cosx
+
+        !Heaviside step function. The rotation accounts for the right wall
+        delta = (sign(UP,vn)*rot+1.0)/2.0
+
+        !--------------------------------------------------
+        !Reconstruct non-equlibrium distribution at interface
+        !--------------------------------------------------
+        h = cell%h-rot*0.5*cell%length(idx)*cell%sh(:,:,idx)
+        b = cell%b-rot*0.5*cell%length(idx)*cell%sb(:,:,idx)
+
+        !Calculate primary variable of g_{i+1/2} in local frame
+        prim_w = LocalFrame(bc,face%cosx,face%cosy)
+        prim_g = prim_w
+        prim_g(1) = 2.0*sum(weight*h*(1-delta))
+
+        !--------------------------------------------------
+        !Calculate collision time and some time integration terms
+        !--------------------------------------------------
+        tau = GetTau(prim_g)
+
+        T4 = tau*(1.0-exp(-dt/tau))
+        T5 = -tau*dt*exp(-dt/tau)+tau*T4
+        T1 = dt-T4
+
+        !--------------------------------------------------
+        !Calculate wall density and Maxwellian distribution
+        !--------------------------------------------------
+        call DiscreteMaxwell(H_g,B_g,vn,vt,prim_g)
+
+        incidence = T4*sum(weight*vn*h*(1-delta))-T5*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
+        reflection = T4*(prim_w(4)/PI)*sum(weight*vn*exp(-prim_w(4)*((vn-prim_w(2))**2+(vt-prim_w(3))**2))*delta)
+        prim_w(1) = -incidence/reflection
+
+        call DiscreteMaxwell(H_w,B_w,vn,vt,prim_w)
+
+        h = h*(1-delta)+H_w*delta
+        b = b*(1-delta)+B_w*delta
+        !Calculate heat flux
+        qf = GetHeatFlux(h,b,vn,vt,prim_g) 
+
+        !Shakhov part H+ and B+
+        call ShakhovPart(H_g,B_g,vn,vt,qf,prim_g,H_plus,B_plus)
+
+        !--------------------------------------------------
+        !Calculate flux
+        !--------------------------------------------------
+        face%flux(1) = T1*sum(weight*vn*H_g)+T1*sum(weight*vn*H_plus)+T4*sum(weight*vn*h)-T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(2) = T1*sum(weight*vn*vn*H_g)+T1*sum(weight*vn*vn*H_plus)+T4*sum(weight*vn*vn*h)-T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(3) = T1*sum(weight*vn*vt*H_g)+T1*sum(weight*vt*vn*H_plus)+T4*sum(weight*vt*vn*h)-T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(4) = T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_g+B_g))&
+                        +T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_plus+B_plus))&
+                        +T4*0.5*sum(weight*vn*((vn**2+vt**2)*h+b))&
+                        -T5*0.5*sum(weight*vn**2*((vn**2+vt**2)*cell%sh(:,:,idx)+cell%sb(:,:,idx))*(1-delta))
+
+        face%flux_h = T1*vn*(H_g+H_plus)+T4*vn*h-T5*vn**2*cell%sh(:,:,idx)*(1-delta)
+        face%flux_b = T1*vn*(B_g+B_plus)+T4*vn*b-T5*vn**2*cell%sb(:,:,idx)*(1-delta)
+
+        !--------------------------------------------------
+        !Final flux
+        !--------------------------------------------------
+        !Convert to global frame
+        
+        face%flux = GlobalFrame(face%flux,face%cosx,face%cosy)
+
+        !Total flux
+        face%flux = face%length*face%flux
+        face%flux_h = face%length*face%flux_h
+        face%flux_b = face%length*face%flux_b
+        
+        !--------------------------------------------------
+        !Aftermath
+        !--------------------------------------------------
+        !Deallocate array
+        deallocate(vn)
+        deallocate(vt)
+        deallocate(delta)
+        deallocate(h)
+        deallocate(b)
+        deallocate(H_g)
+        deallocate(B_g)
+        deallocate(H_w)
+        deallocate(B_w)
+        deallocate(H_plus)
+        deallocate(B_plus)
+    end subroutine TEST1_FluxBoundary
+
     !--------------------------------------------------
     !>Calculate micro slope of Maxwellian distribution
     !>@param[in] prim        :primary variables
@@ -1169,12 +1296,12 @@ contains
 
                 !Maximum velocity
                 !------------- For large Knudsen number ------------
-                ! prim(2) = max(U_MAX,abs(prim(2))+sos)
-                ! prim(3) = max(V_MAX,abs(prim(3))+sos)
+                prim(2) = max(U_MAX,abs(prim(2))+sos)
+                prim(3) = max(V_MAX,abs(prim(3))+sos)
 
                 !------------- For large Reynolds number -----------
-                prim(2) = abs(prim(2))+sos
-                prim(3) = abs(prim(3))+sos
+                ! prim(2) = abs(prim(2))+sos
+                ! prim(3) = abs(prim(3))+sos
 
                 !Maximum 1/dt allowed
                 tMax = max(tMax,(ctr(i,j)%length(2)*prim(2)+ctr(i,j)%length(1)*prim(3))/ctr(i,j)%area)
@@ -1845,7 +1972,7 @@ contains
     !--------------------------------------------------
     subroutine InitVelocityGauss()
         real(KREAL)                                     :: umid,vmid
-        real(KREAL)                                     :: vcoords(16), weights(16) !Velocity points and weight for 28 points (symmetry)
+        real(KREAL)                                     :: vcoords(8), weights(8) !Velocity points and weight for 28 points (symmetry)
         integer(KINT)                                   :: i,j
 
         !Set 28*28 velocity points and weight
@@ -1866,26 +1993,26 @@ contains
         !             +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
 
         !Set 16*16 velocity points and weight
-        vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
-                    -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
-                    0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
-                    0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
+        ! vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
+        !             -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
+        !             0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
+        !             0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
 
-        weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
-                    0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
-                    0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
-                    0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
+        ! weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
+        !             0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
+        !             0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
+        !             0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
 
         !Set 8*8 velocity points and weight
-        ! vcoords = [ -0.2262664477010362E+1, -0.1342537825644992E+1, -0.6243246901871900E0, -0.1337764469960676E0,&
-        !             0.1337764469960676E0, 0.6243246901871900E0, 0.1342537825644992E+1, 0.2262664477010362E+1]
+        vcoords = [ -0.2262664477010362E+1, -0.1342537825644992E+1, -0.6243246901871900E0, -0.1337764469960676E0,&
+                    0.1337764469960676E0, 0.6243246901871900E0, 0.1342537825644992E+1, 0.2262664477010362E+1]
 
-        ! weights = [ 0.6374323486257276E-2, 0.1334425003575195E0, 0.4211071018520622E0, 0.3253029997569190E0,&
-        !             0.3253029997569190E0, 0.4211071018520622E0, 0.1334425003575195E0, 0.6374323486257276E-2]
+        weights = [ 0.6374323486257276E-2, 0.1334425003575195E0, 0.4211071018520622E0, 0.3253029997569190E0,&
+                    0.3253029997569190E0, 0.4211071018520622E0, 0.1334425003575195E0, 0.6374323486257276E-2]
 
         !set grid number for u-velocity and v-velocity
-        uNum = 16
-        vNum = 16
+        uNum = 8
+        vNum = 8
 
         !allocate discrete velocity space
         allocate(uSpace(uNum,vNum)) !x direction
@@ -2188,7 +2315,7 @@ program Cavity
             close(RESFILE)
         end if
 
-        if (mod(iter,5000)==0) then
+        if (mod(iter,500)==0) then
             call Output()
         end if
 
