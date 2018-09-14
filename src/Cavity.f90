@@ -1040,11 +1040,12 @@ contains
         real(KREAL), allocatable, dimension(:,:)        :: H_w,B_w !Maxwellian distribution function at wall interface
         real(KREAL), allocatable, dimension(:,:)        :: H_g,B_g !Maxwellian distribution function at ghost cell
         real(KREAL), allocatable, dimension(:,:)        :: H_plus,B_plus !Shakhov part of the equilibrium distribution
-        real(KREAL)                                     :: qf(2) !Heat flux in normal and tangential direction
         real(KREAL), allocatable, dimension(:,:)        :: delta !Heaviside step function
+        real(KREAL)                                     :: qf(2) !Heat flux in normal and tangential direction
         real(KREAL)                                     :: prim_w(4) !Primary variables of wall interface
         real(KREAL)                                     :: prim_g(4) !Primary variables of ghost cell
         real(KREAL)                                     :: incidence,reflection
+        real(KREAL)                                     :: rho_x !Derivative of g in ghost cell, contain only rho in this case
         real(KREAL)                                     :: tau,T1,T4,T5 !Some time integration coefficients
 
         !--------------------------------------------------
@@ -1078,8 +1079,20 @@ contains
 
         !Calculate primary variable of wall interface in local frame
         prim_g = LocalFrame(bc,face%cosx,face%cosy)
+        prim_g(1) = 2.0*sum(weight*h*(1-delta))
         prim_w = prim_g
-        prim_w(1) = 2.0*sum(weight*h*(1-delta))
+        
+        !Set initial non-equilibrium distribution
+        call DiscreteMaxwell(H_g,B_g,vn,vt,prim_g)
+        h = h*(1-delta)+H_g*delta
+        b = b*(1-delta)+B_g*delta
+
+        !Calculate heat flux
+        qf = GetHeatFlux(h,b,vn,vt,prim_w) 
+
+        !Shakhov part H+ and B+
+        call DiscreteMaxwell(H_w,B_w,vn,vt,prim_w)
+        call ShakhovPart(H_w,B_w,vn,vt,qf,prim_w,H_plus,B_plus)
 
         !--------------------------------------------------
         !Calculate collision time and some time integration terms
@@ -1093,45 +1106,28 @@ contains
         !--------------------------------------------------
         !Calculate wall density and Maxwellian distribution
         !--------------------------------------------------
-        incidence = T4*sum(weight*vn*h*(1-delta))-T5*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
-        reflection = T4*(prim_g(4)/PI)*sum(weight*vn*exp(-prim_g(4)*((vn-prim_g(2))**2+(vt-prim_g(3))**2))*delta)
-        prim_g(1) = -incidence/reflection
-
-        call DiscreteMaxwell(H_g,B_g,vn,vt,prim_g)
-        call DiscreteMaxwell(H_w,B_w,vn,vt,prim_w)
-
-        h = h*(1-delta)+H_g*delta
-        b = b*(1-delta)+B_g*delta
-        !Calculate heat flux
-        qf = GetHeatFlux(h,b,vn,vt,prim_w) 
-
-        !Shakhov part H+ and B+
-        ! call ShakhovPart(H_w,B_w,vn,vt,qf,prim_w,H_plus,B_plus)
+        incidence = T1*sum(weight*vn*H_plus)+T4*sum(weight*vn*h)&
+                    -T5*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
+        reflection = -T5*sum(weight*vn*vn*H_g*delta)
+        rho_x = -incidence/reflection
 
         !--------------------------------------------------
         !Calculate flux
         !--------------------------------------------------
-        ! face%flux(1) = T1*sum(weight*vn*H_w)+T1*sum(weight*vn*H_plus)+T4*sum(weight*vn*h)-T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
-        ! face%flux(2) = T1*sum(weight*vn*vn*H_w)+T1*sum(weight*vn*vn*H_plus)+T4*sum(weight*vn*vn*h)-T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
-        ! face%flux(3) = T1*sum(weight*vn*vt*H_w)+T1*sum(weight*vt*vn*H_plus)+T4*sum(weight*vt*vn*h)-T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
-        ! face%flux(4) = T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_w+B_w))&
-        !                 +T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_plus+B_plus))&
-        !                 +T4*0.5*sum(weight*vn*((vn**2+vt**2)*h+b))&
-        !                 -T5*0.5*sum(weight*vn**2*((vn**2+vt**2)*cell%sh(:,:,idx)+cell%sb(:,:,idx))*(1-delta))
-
-        ! face%flux_h = T1*vn*(H_w+H_plus)+T4*vn*h-T5*vn**2*cell%sh(:,:,idx)*(1-delta)
-        ! face%flux_b = T1*vn*(B_w+B_plus)+T4*vn*b-T5*vn**2*cell%sb(:,:,idx)*(1-delta)
-
-        face%flux(1) = T1*sum(weight*vn*H_w)+T4*sum(weight*vn*h)-T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
-        face%flux(2) = T1*sum(weight*vn*vn*H_w)+T4*sum(weight*vn*vn*h)-T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
-        face%flux(3) = T1*sum(weight*vn*vt*H_w)+T4*sum(weight*vt*vn*h)-T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(1) = T1*sum(weight*vn*H_w)+T1*sum(weight*vn*H_plus)+T4*sum(weight*vn*h)&
+                        -T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))-T5*rho_x*sum(weight*vn**2*H_g*delta)
+        face%flux(2) = T1*sum(weight*vn*vn*H_w)+T1*sum(weight*vn*vn*H_plus)+T4*sum(weight*vn*vn*h)&
+                        -T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))-T5*rho_x*sum(weight*vn*vn**2*H_g*delta)
+        face%flux(3) = T1*sum(weight*vn*vt*H_w)+T1*sum(weight*vt*vn*H_plus)+T4*sum(weight*vt*vn*h)&
+                        -T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))-T5*rho_x*sum(weight*vt*vn**2*H_g*delta)
         face%flux(4) = T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_w+B_w))&
+                        +T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_plus+B_plus))&
                         +T4*0.5*sum(weight*vn*((vn**2+vt**2)*h+b))&
                         -T5*0.5*sum(weight*vn**2*((vn**2+vt**2)*cell%sh(:,:,idx)+cell%sb(:,:,idx))*(1-delta))&
-                        +(1.0/PR-1.0)*qf(1)
-        
-        face%flux_h = T1*vn*H_w+T4*vn*h-T5*vn**2*cell%sh(:,:,idx)*(1-delta)
-        face%flux_b = T1*vn*B_w+T4*vn*b-T5*vn**2*cell%sb(:,:,idx)*(1-delta)
+                        -T5*0.5*rho_x*sum(weight*vn**2*((vn**2+vt**2)*H_g+B_g)*delta)
+
+        face%flux_h = T1*vn*(H_w+H_plus)+T4*vn*h-T5*vn**2*cell%sh(:,:,idx)*(1-delta)-T5*rho_x*vn**2*H_g*delta
+        face%flux_b = T1*vn*(B_w+B_plus)+T4*vn*b-T5*vn**2*cell%sb(:,:,idx)*(1-delta)-T5*rho_x*vn**2*B_g*delta
 
         !--------------------------------------------------
         !Final flux
@@ -1981,7 +1977,7 @@ contains
     !--------------------------------------------------
     subroutine InitVelocityGauss()
         real(KREAL)                                     :: umid,vmid
-        real(KREAL)                                     :: vcoords(8), weights(8) !Velocity points and weight for 28 points (symmetry)
+        real(KREAL)                                     :: vcoords(16), weights(16) !Velocity points and weight for 28 points (symmetry)
         integer(KINT)                                   :: i,j
 
         !Set 28*28 velocity points and weight
@@ -2002,26 +1998,26 @@ contains
         !             +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
 
         !Set 16*16 velocity points and weight
-        ! vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
-        !             -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
-        !             0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
-        !             0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
+        vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
+                    -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
+                    0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
+                    0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
 
-        ! weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
-        !             0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
-        !             0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
-        !             0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
+        weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
+                    0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
+                    0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
+                    0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
 
         !Set 8*8 velocity points and weight
-        vcoords = [ -0.2262664477010362E+1, -0.1342537825644992E+1, -0.6243246901871900E0, -0.1337764469960676E0,&
-                    0.1337764469960676E0, 0.6243246901871900E0, 0.1342537825644992E+1, 0.2262664477010362E+1]
+        ! vcoords = [ -0.2262664477010362E+1, -0.1342537825644992E+1, -0.6243246901871900E0, -0.1337764469960676E0,&
+        !             0.1337764469960676E0, 0.6243246901871900E0, 0.1342537825644992E+1, 0.2262664477010362E+1]
 
-        weights = [ 0.6374323486257276E-2, 0.1334425003575195E0, 0.4211071018520622E0, 0.3253029997569190E0,&
-                    0.3253029997569190E0, 0.4211071018520622E0, 0.1334425003575195E0, 0.6374323486257276E-2]
+        ! weights = [ 0.6374323486257276E-2, 0.1334425003575195E0, 0.4211071018520622E0, 0.3253029997569190E0,&
+        !             0.3253029997569190E0, 0.4211071018520622E0, 0.1334425003575195E0, 0.6374323486257276E-2]
 
         !set grid number for u-velocity and v-velocity
-        uNum = 8
-        vNum = 8
+        uNum = 16
+        vNum = 16
 
         !allocate discrete velocity space
         allocate(uSpace(uNum,vNum)) !x direction
@@ -2324,7 +2320,7 @@ program Cavity
             close(RESFILE)
         end if
 
-        if (mod(iter,5000)==0) then
+        if (mod(iter,10000)==0) then
             call Output()
         end if
 
