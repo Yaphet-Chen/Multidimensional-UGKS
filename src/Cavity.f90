@@ -123,7 +123,7 @@ module ControlParameters
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: BOUNDARY_TYPE = TEST1
+    integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
     integer(KINT), parameter                            :: FLUX_TYPE = MULTIDIMENSION
     real(KREAL), parameter                              :: CFL = 0.5 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 500000000 !Maximal iteration number
@@ -159,7 +159,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 31, Y_NUM = 31 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 61, Y_NUM = 61 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -981,7 +981,7 @@ contains
         call DiscreteMaxwell(H_g,B_g,vn,vt,prim_g)
 
         incidence = T1*sum(weight*vn*H_g*(1-delta))&
-                    +T4*sum(weight*vn*h*(1-delta))-T5*rot*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
+                    +T4*sum(weight*vn*h*(1-delta))+T5*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
         reflection = dt*(prim_w(4)/PI)*sum(weight*vn*exp(-prim_w(4)*((vn-prim_w(2))**2+(vt-prim_w(3))**2))*delta)
         prim_w(1) = -incidence/reflection
 
@@ -990,17 +990,17 @@ contains
         !--------------------------------------------------
         !Calculate flux
         !--------------------------------------------------
-        face%flux(1) = dt*sum(weight*vn*H_w*delta)+T1*sum(weight*vn*H_g*(1-delta))+T4*sum(weight*vn*h*(1-delta))-T5*rot*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(1) = dt*sum(weight*vn*H_w*delta)+T1*sum(weight*vn*H_g*(1-delta))+T4*sum(weight*vn*h*(1-delta))+T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(2) = dt*sum(weight*vn*vn*H_w*delta)&
-                        +T1*sum(weight*vn*vn*H_g*(1-delta))+T4*sum(weight*vn*vn*h*(1-delta))-T5*rot*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
+                        +T1*sum(weight*vn*vn*H_g*(1-delta))+T4*sum(weight*vn*vn*h*(1-delta))+T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(3) = dt*sum(weight*vn*vt*H_w*delta)&
-                        +T1*sum(weight*vn*vt*H_g*(1-delta))+T4*sum(weight*vt*vn*h*(1-delta))-T5*rot*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
+                        +T1*sum(weight*vn*vt*H_g*(1-delta))+T4*sum(weight*vt*vn*h*(1-delta))+T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(4) = dt*0.5*sum(weight*vn*((vn**2+vt**2)*H_w+B_w)*delta)+T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_g+B_g)*(1-delta))&
                         +T4*0.5*sum(weight*vn*((vn**2+vt**2)*h+b)*(1-delta))&
-                        -T5*0.5*rot*sum(weight*vn**2*((vn**2+vt**2)*cell%sh(:,:,idx)+cell%sb(:,:,idx))*(1-delta))
+                        +T5*0.5*sum(weight*vn**2*((vn**2+vt**2)*cell%sh(:,:,idx)+cell%sb(:,:,idx))*(1-delta))
 
-        face%flux_h = dt*vn*H_w*delta+T1*vn*H_g*(1-delta)+T4*vn*h*(1-delta)-T5*rot*vn**2*cell%sh(:,:,idx)*(1-delta)
-        face%flux_b = dt*vn*B_w*delta+T1*vn*B_g*(1-delta)+T4*vn*b*(1-delta)-T5*rot*vn**2*cell%sb(:,:,idx)*(1-delta)
+        face%flux_h = dt*vn*H_w*delta+T1*vn*H_g*(1-delta)+T4*vn*h*(1-delta)+T5*vn**2*cell%sh(:,:,idx)*(1-delta)
+        face%flux_b = dt*vn*B_w*delta+T1*vn*B_g*(1-delta)+T4*vn*b*(1-delta)+T5*vn**2*cell%sb(:,:,idx)*(1-delta)
 
         !--------------------------------------------------
         !Final flux
@@ -1997,7 +1997,7 @@ contains
     !--------------------------------------------------
     subroutine InitVelocityGauss()
         real(KREAL)                                     :: umid,vmid
-        real(KREAL)                                     :: vcoords(16), weights(16) !Velocity points and weight for 28 points (symmetry)
+        real(KREAL)                                     :: vcoords(8), weights(8) !Velocity points and weight for 28 points (symmetry)
         integer(KINT)                                   :: i,j
 
         !Set 28*28 velocity points and weight
@@ -2018,26 +2018,26 @@ contains
         !             +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
 
         !Set 16*16 velocity points and weight
-        vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
-                    -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
-                    0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
-                    0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
+        ! vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
+        !             -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
+        !             0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
+        !             0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
 
-        weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
-                    0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
-                    0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
-                    0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
+        ! weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
+        !             0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
+        !             0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
+        !             0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
 
         !Set 8*8 velocity points and weight
-        ! vcoords = [ -0.2262664477010362E+1, -0.1342537825644992E+1, -0.6243246901871900E0, -0.1337764469960676E0,&
-        !             0.1337764469960676E0, 0.6243246901871900E0, 0.1342537825644992E+1, 0.2262664477010362E+1]
+        vcoords = [ -0.2262664477010362E+1, -0.1342537825644992E+1, -0.6243246901871900E0, -0.1337764469960676E0,&
+                    0.1337764469960676E0, 0.6243246901871900E0, 0.1342537825644992E+1, 0.2262664477010362E+1]
 
-        ! weights = [ 0.6374323486257276E-2, 0.1334425003575195E0, 0.4211071018520622E0, 0.3253029997569190E0,&
-        !             0.3253029997569190E0, 0.4211071018520622E0, 0.1334425003575195E0, 0.6374323486257276E-2]
+        weights = [ 0.6374323486257276E-2, 0.1334425003575195E0, 0.4211071018520622E0, 0.3253029997569190E0,&
+                    0.3253029997569190E0, 0.4211071018520622E0, 0.1334425003575195E0, 0.6374323486257276E-2]
 
         !set grid number for u-velocity and v-velocity
-        uNum = 16
-        vNum = 16
+        uNum = 8
+        vNum = 8
 
         !allocate discrete velocity space
         allocate(uSpace(uNum,vNum)) !x direction
