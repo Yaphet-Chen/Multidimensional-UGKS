@@ -1348,8 +1348,21 @@ contains
             targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
             targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
         elseif (RECONSTRUCTION_METHOD==CENTRAL) then
-            targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
-            targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            ! targetCell%sh(:,:,idx) = (rightCell%h-leftCell%h)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            ! targetCell%sb(:,:,idx) = (rightCell%b-leftCell%b)/(0.5*rightCell%length(idx)+0.5*leftCell%length(idx))
+            allocate(H0(uNum,vNum))
+            allocate(B0(uNum,vNum))
+            prim = GetPrimary(targetCell%conVars)
+            ! prim(1) = prim(1)/prim(4)*bc(4)
+            prim(2:4) = bc(2:4)
+            call DiscreteMaxwell(H0,B0,uSpace,vSpace,prim)
+            tau = GetTau(prim)
+            ! H0 = (1.0-exp(-dt/tau))*H0+exp(-dt/tau)*targetCell%h
+            ! B0 = (1.0-exp(-dt/tau))*B0+exp(-dt/tau)*targetCell%b
+            targetCell%sh(:,:,idx) = (0.5*(rot+1.0)*rightCell%h+0.5*(rot-1.0)*leftCell%h-rot*H0)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
+            targetCell%sb(:,:,idx) = (0.5*(rot+1.0)*rightCell%b+0.5*(rot-1.0)*leftCell%b-rot*B0)/(0.5*rightCell%length(idx)+targetCell%length(idx)+0.5*leftCell%length(idx))
+            deallocate(H0)
+            deallocate(B0)
         else
             stop "Error in RECONSTRUCTION_METHOD!"
         end if
