@@ -981,7 +981,7 @@ contains
         call DiscreteMaxwell(H_g,B_g,vn,vt,prim_g)
 
         incidence = T1*sum(weight*vn*H_g*(1-delta))&
-                    +T4*sum(weight*vn*h*(1-delta))-T5*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
+                    +T4*sum(weight*vn*h*(1-delta))-T5*rot*sum(weight*vn*vn*cell%sh(:,:,idx)*(1-delta))
         reflection = dt*(prim_w(4)/PI)*sum(weight*vn*exp(-prim_w(4)*((vn-prim_w(2))**2+(vt-prim_w(3))**2))*delta)
         prim_w(1) = -incidence/reflection
 
@@ -990,17 +990,17 @@ contains
         !--------------------------------------------------
         !Calculate flux
         !--------------------------------------------------
-        face%flux(1) = dt*sum(weight*vn*H_w*delta)+T1*sum(weight*vn*H_g*(1-delta))+T4*sum(weight*vn*h*(1-delta))-T5*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
+        face%flux(1) = dt*sum(weight*vn*H_w*delta)+T1*sum(weight*vn*H_g*(1-delta))+T4*sum(weight*vn*h*(1-delta))-T5*rot*sum(weight*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(2) = dt*sum(weight*vn*vn*H_w*delta)&
-                        +T1*sum(weight*vn*vn*H_g*(1-delta))+T4*sum(weight*vn*vn*h*(1-delta))-T5*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
+                        +T1*sum(weight*vn*vn*H_g*(1-delta))+T4*sum(weight*vn*vn*h*(1-delta))-T5*rot*sum(weight*vn*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(3) = dt*sum(weight*vn*vt*H_w*delta)&
-                        +T1*sum(weight*vn*vt*H_g*(1-delta))+T4*sum(weight*vt*vn*h*(1-delta))-T5*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
+                        +T1*sum(weight*vn*vt*H_g*(1-delta))+T4*sum(weight*vt*vn*h*(1-delta))-T5*rot*sum(weight*vt*vn**2*cell%sh(:,:,idx)*(1-delta))
         face%flux(4) = dt*0.5*sum(weight*vn*((vn**2+vt**2)*H_w+B_w)*delta)+T1*0.5*sum(weight*vn*((vn**2+vt**2)*H_g+B_g)*(1-delta))&
                         +T4*0.5*sum(weight*vn*((vn**2+vt**2)*h+b)*(1-delta))&
-                        -T5*0.5*sum(weight*vn**2*((vn**2+vt**2)*cell%sh(:,:,idx)+cell%sb(:,:,idx))*(1-delta))
+                        -T5*0.5*rot*sum(weight*vn**2*((vn**2+vt**2)*cell%sh(:,:,idx)+cell%sb(:,:,idx))*(1-delta))
 
-        face%flux_h = dt*vn*H_w*delta+T1*vn*H_g*(1-delta)+T4*vn*h*(1-delta)-T5*vn**2*cell%sh(:,:,idx)*(1-delta)
-        face%flux_b = dt*vn*B_w*delta+T1*vn*B_g*(1-delta)+T4*vn*b*(1-delta)-T5*vn**2*cell%sb(:,:,idx)*(1-delta)
+        face%flux_h = dt*vn*H_w*delta+T1*vn*H_g*(1-delta)+T4*vn*h*(1-delta)-T5*rot*vn**2*cell%sh(:,:,idx)*(1-delta)
+        face%flux_b = dt*vn*B_w*delta+T1*vn*B_g*(1-delta)+T4*vn*b*(1-delta)-T5*rot*vn**2*cell%sb(:,:,idx)*(1-delta)
 
         !--------------------------------------------------
         !Final flux
