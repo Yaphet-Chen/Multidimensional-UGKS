@@ -125,7 +125,7 @@ module ControlParameters
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
     integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
     integer(KINT), parameter                            :: FLUX_TYPE = MULTIDIMENSION
-    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.8 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 500000000 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-7 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -415,11 +415,12 @@ contains
     !>@param[in]    rightCell :cell right to the target interface
     !>@param[in]    idx       :index indicating i or j direction
     !--------------------------------------------------
-    subroutine CalcFaceConvars(leftCell,face,rightCell)
+    subroutine CalcFaceConvars(leftCell,face,rightCell,idx)
         type(CellCenter), intent(in)                    :: leftCell,rightCell
         type(CellInterface), intent(inout)              :: face
+        integer(KINT), intent(in)                       :: idx !indicator for direction
 
-        face%conVars = 0.5*LocalFrame(rightCell%conVars+leftCell%conVars,face%cosx,face%cosy)
+        face%conVars = LocalFrame(rightCell%conVars*leftCell%length(idx)+leftCell%conVars*rightCell%length(idx),face%cosx,face%cosy)/(rightCell%length(idx)+leftCell%length(idx))
     end subroutine CalcFaceConvars
 
     !--------------------------------------------------
@@ -559,7 +560,7 @@ contains
         face%flux(4) = face%flux(4)+&
                         Mt(1)*0.5*sum(weight*vn*((vn**2+vt**2)*H_plus+B_plus))+&
                         Mt(4)*0.5*sum(weight*vn*((vn**2+vt**2)*h+b))-&
-                        Mt(5)*0.5*sum(weight*vn*((vn**2+vt**2)*(vn*shn+vt*sht)+(vn*sbn+vt*sht)))
+                        Mt(5)*0.5*sum(weight*vn*((vn**2+vt**2)*(vn*shn+vt*sht)+(vn*sbn+vt*sbt)))
 
         !--------------------------------------------------
         !Calculate flux of distribution function
@@ -574,7 +575,7 @@ contains
                         Mt(2)*vn**2*(a_slope(1)*B0+a_slope(2)*vn*B0+a_slope(3)*vt*B0+0.5*a_slope(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
                         Mt(2)*vn*vt*(b_slope(1)*B0+b_slope(2)*vn*B0+b_slope(3)*vt*B0+0.5*b_slope(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
                         Mt(3)*vn*(aT(1)*B0+aT(2)*vn*B0+aT(3)*vt*B0+0.5*aT(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
-                        Mt(4)*vn*b-Mt(5)*vn*(vn*sbn+vt*sht)
+                        Mt(4)*vn*b-Mt(5)*vn*(vn*sbn+vt*sbt)
 
         !--------------------------------------------------
         !Final flux
@@ -1471,7 +1472,7 @@ contains
             !$omp do
             do j=IYMIN,IYMAX
                 do i=IXMIN+1,IXMAX
-                    call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j))
+                    call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
                 end do
             end do
             !$omp end do nowait
@@ -1480,7 +1481,7 @@ contains
             !$omp do
             do j=IYMIN+1,IYMAX
                 do i=IXMIN,IXMAX
-                    call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j))
+                    call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
                 end do
             end do
             !$omp end do nowait
@@ -1870,8 +1871,8 @@ contains
         integer(KINT)                                   :: i,j
 
         !Cell length
-        ax = 2.5
-        ay = 2.5
+        ax = 3.4
+        ay = 3.4
 
         !Cell length
         x = (/(i,i=IXMIN-1,IXMAX)/)
