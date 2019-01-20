@@ -123,9 +123,9 @@ module ControlParameters
     integer(KINT), parameter                            :: MESH_TYPE = NONUNIFORM
     integer(KINT), parameter                            :: QUADRATURE_TYPE = GAUSS
     integer(KINT), parameter                            :: OUTPUT_METHOD = CENTER
-    integer(KINT), parameter                            :: BOUNDARY_TYPE = TEST1
+    integer(KINT), parameter                            :: BOUNDARY_TYPE = MULTISCALE
     integer(KINT), parameter                            :: FLUX_TYPE = MULTIDIMENSION
-    real(KREAL), parameter                              :: CFL = 0.5 !CFL number
+    real(KREAL), parameter                              :: CFL = 0.8 !CFL number
     integer(KINT), parameter                            :: MAX_ITER = 500000000 !Maximal iteration number
     real(KREAL), parameter                              :: EPS = 1.0E-7 !Convergence criteria
     real(KREAL)                                         :: simTime = 0.0 !Current simulation time
@@ -159,7 +159,7 @@ module ControlParameters
 
     !Geometry
     real(KREAL), parameter                              :: X_START = 0.0, X_END = 1.0, Y_START = 0.0, Y_END = 1.0 !Start point and end point in x, y direction 
-    integer(KINT), parameter                            :: X_NUM = 31, Y_NUM = 31 !Points number in x, y direction
+    integer(KINT), parameter                            :: X_NUM = 61, Y_NUM = 61 !Points number in x, y direction
     integer(KINT), parameter                            :: IXMIN = 1 , IXMAX = X_NUM, IYMIN = 1 , IYMAX = Y_NUM !Cell index range
     integer(KINT), parameter                            :: N_GRID = (IXMAX-IXMIN+1)*(IYMAX-IYMIN+1) !Total number of cell
     
@@ -415,11 +415,12 @@ contains
     !>@param[in]    rightCell :cell right to the target interface
     !>@param[in]    idx       :index indicating i or j direction
     !--------------------------------------------------
-    subroutine CalcFaceConvars(leftCell,face,rightCell)
+    subroutine CalcFaceConvars(leftCell,face,rightCell,idx)
         type(CellCenter), intent(in)                    :: leftCell,rightCell
         type(CellInterface), intent(inout)              :: face
+        integer(KINT), intent(in)                       :: idx !indicator for direction
 
-        face%conVars = 0.5*LocalFrame(rightCell%conVars+leftCell%conVars,face%cosx,face%cosy)
+        face%conVars = LocalFrame(rightCell%conVars*leftCell%length(idx)+leftCell%conVars*rightCell%length(idx),face%cosx,face%cosy)/(rightCell%length(idx)+leftCell%length(idx))
     end subroutine CalcFaceConvars
 
     !--------------------------------------------------
@@ -559,7 +560,7 @@ contains
         face%flux(4) = face%flux(4)+&
                         Mt(1)*0.5*sum(weight*vn*((vn**2+vt**2)*H_plus+B_plus))+&
                         Mt(4)*0.5*sum(weight*vn*((vn**2+vt**2)*h+b))-&
-                        Mt(5)*0.5*sum(weight*vn*((vn**2+vt**2)*(vn*shn+vt*sht)+(vn*sbn+vt*sht)))
+                        Mt(5)*0.5*sum(weight*vn*((vn**2+vt**2)*(vn*shn+vt*sht)+(vn*sbn+vt*sbt)))
 
         !--------------------------------------------------
         !Calculate flux of distribution function
@@ -574,7 +575,7 @@ contains
                         Mt(2)*vn**2*(a_slope(1)*B0+a_slope(2)*vn*B0+a_slope(3)*vt*B0+0.5*a_slope(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
                         Mt(2)*vn*vt*(b_slope(1)*B0+b_slope(2)*vn*B0+b_slope(3)*vt*B0+0.5*b_slope(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
                         Mt(3)*vn*(aT(1)*B0+aT(2)*vn*B0+aT(3)*vt*B0+0.5*aT(4)*((vn**2+vt**2)*B0+Mxi(2)*H0))+&
-                        Mt(4)*vn*b-Mt(5)*vn*(vn*sbn+vt*sht)
+                        Mt(4)*vn*b-Mt(5)*vn*(vn*sbn+vt*sbt)
 
         !--------------------------------------------------
         !Final flux
@@ -1471,7 +1472,7 @@ contains
             !$omp do
             do j=IYMIN,IYMAX
                 do i=IXMIN+1,IXMAX
-                    call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j))
+                    call CalcFaceConvars(ctr(i-1,j),vface(i,j),ctr(i,j),IDIRC)
                 end do
             end do
             !$omp end do nowait
@@ -1480,7 +1481,7 @@ contains
             !$omp do
             do j=IYMIN+1,IYMAX
                 do i=IXMIN,IXMAX
-                    call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j))
+                    call CalcFaceConvars(ctr(i,j-1),hface(i,j),ctr(i,j),JDIRC)
                 end do
             end do
             !$omp end do nowait
@@ -1870,8 +1871,8 @@ contains
         integer(KINT)                                   :: i,j
 
         !Cell length
-        ax = 2.5
-        ay = 2.5
+        ax = 3.4
+        ay = 3.4
 
         !Cell length
         x = (/(i,i=IXMIN-1,IXMAX)/)
@@ -1997,7 +1998,7 @@ contains
     !--------------------------------------------------
     subroutine InitVelocityGauss()
         real(KREAL)                                     :: umid,vmid
-        real(KREAL)                                     :: vcoords(8), weights(8) !Velocity points and weight for 28 points (symmetry)
+        real(KREAL)                                     :: vcoords(16), weights(16) !Velocity points and weight for 28 points (symmetry)
         integer(KINT)                                   :: i,j
 
         !Set 28*28 velocity points and weight
@@ -2018,26 +2019,26 @@ contains
         !             +0.3916031412192E-05, +0.6744233894962E-07, +0.3391774320172E-09, +0.2070921821819E-12 ]
 
         !Set 16*16 velocity points and weight
-        ! vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
-        !             -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
-        !             0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
-        !             0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
+        vcoords = [ -0.3686007162724397E+1, -0.2863133883708075E+1, -0.2183921153095858E+1, -0.1588855862270055E+1,&
+                    -0.1064246312116224E+1, -0.6163028841823999, -0.2673983721677653, -0.5297864393185113E-1,&
+                    0.5297864393185113E-1, 0.2673983721677653, 0.6163028841823999, 0.1064246312116224E+1,&
+                    0.1588855862270055E+1, 0.2183921153095858E+1, 0.2863133883708075E+1, 0.3686007162724397E+1]
 
-        ! weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
-        !             0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
-        !             0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
-        !             0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
+        weights = [ 0.1192596926595344E-5, 0.2020636491324107E-3, 0.5367935756025333E-2, 0.4481410991746290E-1,&
+                    0.1574482826187903, 0.2759533979884218, 0.2683307544726388, 0.1341091884533595,&
+                    0.1341091884533595, 0.2683307544726388, 0.2759533979884218, 0.1574482826187903,&
+                    0.4481410991746290E-1, 0.5367935756025333E-2, 0.2020636491324107E-3, 0.1192596926595344E-5]
 
         !Set 8*8 velocity points and weight
-        vcoords = [ -0.2262664477010362E+1, -0.1342537825644992E+1, -0.6243246901871900E0, -0.1337764469960676E0,&
-                    0.1337764469960676E0, 0.6243246901871900E0, 0.1342537825644992E+1, 0.2262664477010362E+1]
+        ! vcoords = [ -0.2262664477010362E+1, -0.1342537825644992E+1, -0.6243246901871900E0, -0.1337764469960676E0,&
+        !             0.1337764469960676E0, 0.6243246901871900E0, 0.1342537825644992E+1, 0.2262664477010362E+1]
 
-        weights = [ 0.6374323486257276E-2, 0.1334425003575195E0, 0.4211071018520622E0, 0.3253029997569190E0,&
-                    0.3253029997569190E0, 0.4211071018520622E0, 0.1334425003575195E0, 0.6374323486257276E-2]
+        ! weights = [ 0.6374323486257276E-2, 0.1334425003575195E0, 0.4211071018520622E0, 0.3253029997569190E0,&
+        !             0.3253029997569190E0, 0.4211071018520622E0, 0.1334425003575195E0, 0.6374323486257276E-2]
 
         !set grid number for u-velocity and v-velocity
-        uNum = 8
-        vNum = 8
+        uNum = 16
+        vNum = 16
 
         !allocate discrete velocity space
         allocate(uSpace(uNum,vNum)) !x direction
