@@ -144,7 +144,7 @@ module ControlParameters
     !Gas propeties
     integer(KINT), parameter                            :: CK = 0 !Internal degree of freedom, here 1 denotes monatomic gas
     real(KREAL), parameter                              :: GAMMA = real(CK+4,KREAL)/real(CK+2,KREAL) !Ratio of specific heat
-    real(KREAL), parameter                              :: OMEGA = 0.0 !Temperature dependence index in HS/VHS/VSS model
+    real(KREAL), parameter                              :: OMEGA = 0.81 !Temperature dependence index in HS/VHS/VSS model
     real(KREAL), parameter                              :: PR = 2.0/3.0 !Prandtl number
 
     ! MU_REF determined by Kn number
