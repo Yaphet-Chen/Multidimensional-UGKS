@@ -1,2 +1,2 @@
-# UGKS
-Unified Gas Kinetic Scheme
+# Multidimensional UGKS
+Multidimensional Unified Gas Kinetic Scheme
